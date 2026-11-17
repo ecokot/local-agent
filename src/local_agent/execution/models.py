@@ -31,3 +31,21 @@ class ExecutionEvent:
             event_id=str(uuid4()),
             timestamp=datetime.now(UTC).isoformat(),
         )
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "event_id": self.event_id,
+            "execution_id": self.execution_id,
+            "event_type": self.event_type,
+            "timestamp": self.timestamp,
+            "data": self.data,
+        }
+
+    @classmethod
+    def from_dict(cls, value: dict[str, Any]) -> "ExecutionEvent":
+        return cls(
+            event_id=value["event_id"],
+            execution_id=value["execution_id"],
+            event_type=value["event_type"],
+            timestamp=value["timestamp"],
+            data=value["data"],
+        )
