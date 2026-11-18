@@ -134,3 +134,14 @@ def test_recovery_is_idempotent(
 
     recovery.recover()
     assert state_manager.get_state(running_task) == TaskStatus.SUCCEEDED
+
+def test_running_task_without_executions_raises_error(components):
+    state_manager, _, recovery_manager = components
+
+    task_id = state_manager.create_task("Task without execution")
+    state_manager.transition(task_id, TaskStatus.RUNNING)
+
+    with pytest.raises(RecoveryError, match="has no executions"):
+        recovery_manager.recover()
+
+    assert state_manager.get_state(task_id) == TaskStatus.RUNNING

@@ -1,6 +1,7 @@
 from typing import ClassVar
 
 from local_agent.execution.recorder import ExecutionRecorder
+from local_agent.models import ExecutionStatus
 from local_agent.state_manager import StateManager, TaskStatus
 
 
@@ -26,9 +27,9 @@ class RecoveryManager:
         tasks = self.state_manager.get_tasks()
 
         for task in tasks:
-            task_id = task["task_id"]
+            task_id = task.task_id
 
-            if TaskStatus(task["status"]) != TaskStatus.RUNNING:
+            if task.status != TaskStatus.RUNNING:
                 continue
 
             executions = (
@@ -36,11 +37,13 @@ class RecoveryManager:
             )
 
             if not executions:
-                continue
+                raise RecoveryError(
+                    f"Task {task_id} is RUNNING but has no executions"
+                )
 
             latest_execution = executions[-1]
-            execution_id = latest_execution["execution_id"]
-            execution_status = latest_execution["status"]
+            execution_id = latest_execution.execution_id
+            execution_status = latest_execution.status
 
             events = self.execution_recorder.get_events(execution_id)
 
@@ -53,7 +56,7 @@ class RecoveryManager:
                 )
             ]
 
-            if execution_status == "RUNNING":
+            if execution_status == ExecutionStatus.RUNNING:
                 if terminal_events:
                     raise RecoveryError(
                         f"Execution {execution_id} is RUNNING "

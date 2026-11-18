@@ -8,6 +8,7 @@ from typing import Any, Self
 from uuid import uuid4
 
 from local_agent.execution.models import ExecutionEvent
+from local_agent.models import Execution, ExecutionStatus
 
 
 class ExecutionRecorderError(Exception):
@@ -480,23 +481,25 @@ class ExecutionRecorder:
     def get_executions_for_task(
             self,
             task_id: str,
-    ) -> list[dict[str, str | None]]:
+    ) -> list[Execution]:
         with self._lock:
             rows = self._connection.execute(
                 """
-                SELECT execution_id, status, started_at, finished_at
+                SELECT execution_id, task_id, status, started_at, finished_at
                 FROM executions
                 WHERE task_id = ?
                 ORDER BY rowid
                 """,
-                (task_id,)
+                (task_id,),
             ).fetchall()
+
         return [
-            {
-                "execution_id": row["execution_id"],
-                "status": row["status"],
-                "started_at": row["started_at"],
-                "finished_at": row["finished_at"],
-            }
+            Execution(
+                execution_id=row["execution_id"],
+                task_id=row["task_id"],
+                status=ExecutionStatus(row["status"]),
+                started_at=row["started_at"],
+                finished_at=row["finished_at"],
+            )
             for row in rows
         ]

@@ -4,6 +4,8 @@ from pathlib import Path
 from typing import ClassVar, Self
 from uuid import uuid4
 
+from local_agent.models import Task
+
 
 class TaskStatus(StrEnum):
     CREATED = "CREATED"
@@ -119,7 +121,26 @@ class StateManager:
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         self.close()
 
-    def get_tasks(self) -> list[dict[str, str]]:
+    def get_task(self, task_id: str) -> Task:
+        row = self.connection.execute(
+            """
+            SELECT task_id, description, status
+            FROM tasks
+            WHERE task_id = ?
+            """,
+            (task_id,),
+        ).fetchone()
+
+        if row is None:
+            raise ValueError(f"Unknown task: {task_id}")
+
+        return Task(
+            task_id=row["task_id"],
+            description=row["description"],
+            status=TaskStatus(row["status"]),
+        )
+
+    def get_tasks(self) -> list[Task]:
         rows = self.connection.execute(
             """
             SELECT task_id, description, status
@@ -129,10 +150,10 @@ class StateManager:
         ).fetchall()
 
         return [
-            {
-                "task_id": row["task_id"],
-                "description": row["description"],
-                "status": row["status"],
-            }
+            Task(
+                task_id=row["task_id"],
+                description=row["description"],
+                status=TaskStatus(row["status"]),
+            )
             for row in rows
         ]
