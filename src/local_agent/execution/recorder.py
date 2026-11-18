@@ -7,7 +7,7 @@ from threading import RLock
 from typing import Any, Self
 from uuid import uuid4
 
-from local_agent.execution.models import ExecutionEvent
+from local_agent.execution.models import ExecutionEvent, ExecutionEventType
 from local_agent.models import Execution, ExecutionStatus
 
 
@@ -136,7 +136,7 @@ class ExecutionRecorder:
 
         event = ExecutionEvent.create(
             execution_id,
-            "EXECUTION_STARTED",
+            ExecutionEventType.EXECUTION_STARTED,
         )
 
         try:
@@ -240,7 +240,7 @@ class ExecutionRecorder:
         self._finish(
             execution_id,
             "SUCCEEDED",
-            "EXECUTION_FINISHED",
+            ExecutionEventType.EXECUTION_FINISHED,
             result,
         )
 
@@ -252,7 +252,7 @@ class ExecutionRecorder:
         self._finish(
             execution_id,
             "FAILED",
-            "EXECUTION_FAILED",
+            ExecutionEventType.EXECUTION_FAILED,
             {"error": error},
         )
 

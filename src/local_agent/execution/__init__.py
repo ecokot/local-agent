@@ -1,4 +1,4 @@
-from local_agent.execution.models import ExecutionEvent
+from local_agent.execution.models import ExecutionEvent, ExecutionEventType
 from local_agent.execution.recorder import (
     ExecutionRecorder,
     ExecutionRecorderError,
@@ -6,6 +6,7 @@ from local_agent.execution.recorder import (
 
 __all__ = [
     "ExecutionEvent",
+    "ExecutionEventType",
     "ExecutionRecorder",
     "ExecutionRecorderError",
 ]

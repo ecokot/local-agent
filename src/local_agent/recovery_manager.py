@@ -1,5 +1,6 @@
 from typing import ClassVar
 
+from local_agent.execution.models import ExecutionEventType
 from local_agent.execution.recorder import ExecutionRecorder
 from local_agent.models import ExecutionStatus
 from local_agent.state_manager import StateManager, TaskStatus
@@ -11,8 +12,8 @@ class RecoveryError(Exception):
 
 class RecoveryManager:
     TERMINAL_EVENTS: ClassVar[dict[str, str]] = {
-        "SUCCEEDED": "EXECUTION_FINISHED",
-        "FAILED": "EXECUTION_FAILED",
+        "SUCCEEDED": ExecutionEventType.EXECUTION_FINISHED,
+        "FAILED": ExecutionEventType.EXECUTION_FAILED,
     }
 
     def __init__(
@@ -51,8 +52,8 @@ class RecoveryManager:
                 event.event_type
                 for event in events
                 if event.event_type in (
-                    "EXECUTION_FINISHED",
-                    "EXECUTION_FAILED",
+                    ExecutionEventType.EXECUTION_FINISHED,
+                    ExecutionEventType.EXECUTION_FAILED,
                 )
             ]
 

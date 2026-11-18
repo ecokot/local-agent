@@ -6,6 +6,7 @@ import pytest
 
 from local_agent.execution import (
     ExecutionEvent,
+    ExecutionEventType,
     ExecutionRecorder,
     ExecutionRecorderError,
 )
@@ -529,3 +530,25 @@ def test_old_database_is_migrated(tmp_path, task_id):
 
     finally:
         recorder.close()
+
+def test_execution_event_deep_copies_data():
+    data = {
+        "request": {
+            "headers": ["Authorization"],
+        }
+    }
+
+    event = ExecutionEvent.create(
+        "execution-001",
+        ExecutionEventType.EXECUTION_STARTED,
+        data,
+    )
+
+    data["request"]["headers"].append("Content-Type")
+
+    assert event.event_type == "EXECUTION_STARTED"
+    assert event.data == {
+        "request": {
+            "headers": ["Authorization"],
+        }
+    }
