@@ -6,22 +6,33 @@ import pytest
 
 from local_agent.approval_manager import ApprovalManager
 from local_agent.models import ApprovalStatus
-from local_agent.state_manager import StateManager
+from local_agent.state_manager import StateManager, TaskStatus
 
 
 @pytest.fixture
 def managers(tmp_path):
     database_path = tmp_path / "test.db"
+    connection = sqlite3.connect(database_path)
 
-    with StateManager(database_path) as state_manager:
-        task_id = state_manager.create_task("Test task")
+    state_manager = StateManager(connection=connection)
+    task_id = state_manager.create_task("Test task")
+    state_manager.transition(task_id, TaskStatus.RUNNING)
 
-        with ApprovalManager(database_path) as approval_manager:
-            yield task_id, approval_manager
+    approval_manager = ApprovalManager(
+        connection=connection,
+        state_manager=state_manager,
+    )
+
+    try:
+        yield task_id, approval_manager, state_manager
+    finally:
+        approval_manager.close()
+        state_manager.close()
+        connection.close()
 
 
 def test_request_approval_creates_pending_approval(managers):
-    task_id, manager = managers
+    task_id, manager, _ = managers
 
     approval = manager.request_approval(
         task_id,
@@ -35,7 +46,7 @@ def test_request_approval_creates_pending_approval(managers):
 
 
 def test_same_request_reuses_pending_approval(managers):
-    task_id, manager = managers
+    task_id, manager, _ = managers
 
     first = manager.request_approval(
         task_id, "CREATE_FILE", {"path": "main.py"}
@@ -48,7 +59,7 @@ def test_same_request_reuses_pending_approval(managers):
 
 
 def test_approved_request_is_reused(managers):
-    task_id, manager = managers
+    task_id, manager, _ = managers
 
     first = manager.request_approval(
         task_id, "CREATE_FILE", {"path": "main.py"}
@@ -64,7 +75,7 @@ def test_approved_request_is_reused(managers):
 
 
 def test_changed_parameters_require_new_approval(managers):
-    task_id, manager = managers
+    task_id, manager, _ = managers
 
     first = manager.request_approval(
         task_id, "CREATE_FILE", {"path": "main.py"}
@@ -77,7 +88,7 @@ def test_changed_parameters_require_new_approval(managers):
 
 
 def test_approve_changes_status(managers):
-    task_id, manager = managers
+    task_id, manager, _= managers
 
     approval = manager.request_approval(
         task_id, "CREATE_FILE", {"path": "main.py"}
@@ -93,7 +104,7 @@ def test_approve_changes_status(managers):
 
 
 def test_reject_changes_status(managers):
-    task_id, manager = managers
+    task_id, manager, _ = managers
 
     approval = manager.request_approval(
         task_id, "CREATE_FILE", {"path": "main.py"}
@@ -109,7 +120,7 @@ def test_reject_changes_status(managers):
 
 
 def test_rejected_request_can_be_created_again(managers):
-    task_id, manager = managers
+    task_id, manager, _ = managers
 
     first = manager.request_approval(
         task_id, "CREATE_FILE", {"path": "main.py"}
@@ -125,7 +136,7 @@ def test_rejected_request_can_be_created_again(managers):
 
 
 def test_cannot_decide_approval_twice(managers):
-    task_id, manager = managers
+    task_id, manager, _ = managers
 
     approval = manager.request_approval(
         task_id, "CREATE_FILE", {"path": "main.py"}
@@ -137,14 +148,14 @@ def test_cannot_decide_approval_twice(managers):
 
 
 def test_get_unknown_approval_raises(managers):
-    _, manager = managers
+    _, manager, _ = managers
 
     with pytest.raises(ValueError):
         manager.get_approval("unknown")
 
 
 def test_parameter_order_does_not_change_hash(managers):
-    task_id, manager = managers
+    task_id, manager, _ = managers
 
     first = manager.request_approval(
         task_id,
@@ -195,7 +206,7 @@ def test_unknown_task_cannot_request_approval(tmp_path):
             {"path": "main.py"},
         )
 def test_non_dict_parameters_are_rejected(managers):
-    task_id, manager = managers
+    task_id, manager, _ = managers
 
     with pytest.raises(TypeError):
         manager.request_approval(
@@ -206,7 +217,7 @@ def test_non_dict_parameters_are_rejected(managers):
 
 
 def test_non_json_parameters_are_rejected(managers):
-    task_id, manager = managers
+    task_id, manager, _ = managers
 
     with pytest.raises(ValueError):
         manager.request_approval(
@@ -217,7 +228,7 @@ def test_non_json_parameters_are_rejected(managers):
 
 
 def test_nan_parameters_are_rejected(managers):
-    task_id, manager = managers
+    task_id, manager, _ = managers
 
     with pytest.raises(ValueError):
         manager.request_approval(
@@ -253,3 +264,117 @@ def test_concurrent_requests_reuse_same_approval(tmp_path):
         approval_ids = [future.result() for future in futures]
 
     assert approval_ids[0] == approval_ids[1]
+
+def test_close_does_not_close_external_connection():
+    connection = sqlite3.connect(":memory:")
+
+    # Для внешнего соединения сначала создаём таблицу tasks,
+    # поскольку approvals ссылается на неё через внешний ключ.
+    connection.execute(
+        """
+        CREATE TABLE tasks (
+            task_id TEXT PRIMARY KEY,
+            description TEXT NOT NULL,
+            status TEXT NOT NULL
+        )
+        """
+    )
+
+    manager = ApprovalManager(connection=connection)
+    manager.close()
+
+    connection.execute("SELECT 1")
+    connection.close()
+
+def test_close_closes_owned_connection(tmp_path):
+    manager = ApprovalManager(tmp_path / "test.db")
+    connection = manager.connection
+
+    manager.close()
+
+    with pytest.raises(sqlite3.ProgrammingError):
+        connection.execute("SELECT 1")
+
+def test_request_approval_moves_task_to_waiting(managers):
+    task_id, manager, state_manager = managers
+
+    manager.request_approval(
+        task_id,
+        "CREATE_FILE",
+        {"path": "main.py"},
+    )
+
+    assert state_manager.get_state(task_id) == TaskStatus.WAITING_FOR_APPROVAL
+
+
+def test_approve_resumes_task(managers):
+    task_id, manager, state_manager = managers
+
+    approval = manager.request_approval(
+        task_id,
+        "CREATE_FILE",
+        {"path": "main.py"},
+    )
+
+    manager.approve(approval.approval_id)
+
+    assert state_manager.get_state(task_id) == TaskStatus.RUNNING
+
+
+def test_reject_resumes_task(managers):
+    task_id, manager, state_manager = managers
+
+    approval = manager.request_approval(
+        task_id,
+        "CREATE_FILE",
+        {"path": "main.py"},
+    )
+
+    manager.reject(approval.approval_id)
+
+    assert state_manager.get_state(task_id) == TaskStatus.RUNNING
+
+def test_request_approval_rolls_back_if_task_transition_fails(managers):
+    _, manager, state_manager = managers
+
+    task_id = state_manager.create_task("Task in CREATED state")
+
+    with pytest.raises(ValueError, match="Invalid transition"):
+        manager.request_approval(
+            task_id,
+            "CREATE_FILE",
+            {"path": "main.py"},
+        )
+
+    assert state_manager.get_state(task_id) == TaskStatus.CREATED
+
+    count = manager.connection.execute(
+        """
+        SELECT COUNT(*)
+        FROM approvals
+        WHERE task_id = ?
+        """,
+        (task_id,),
+    ).fetchone()[0]
+
+    assert count == 0
+
+def test_approve_rolls_back_if_task_transition_fails(managers):
+    task_id, manager, state_manager = managers
+
+    approval = manager.request_approval(
+        task_id,
+        "CREATE_FILE",
+        {"path": "main.py"},
+    )
+
+    state_manager.transition(task_id, TaskStatus.CANCELLED)
+
+    with pytest.raises(ValueError, match="Invalid transition"):
+        manager.approve(approval.approval_id)
+
+    restored = manager.get_approval(approval.approval_id)
+
+    assert restored.status == ApprovalStatus.PENDING
+    assert restored.decided_at is None
+    assert state_manager.get_state(task_id) == TaskStatus.CANCELLED

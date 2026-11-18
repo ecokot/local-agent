@@ -34,17 +34,31 @@ class StateManager:
         },
     }
 
-    def __init__(self, database_path: str | Path) -> None:
-        self.database_path = Path(database_path)
-        self.database_path.parent.mkdir(
-            parents=True,
-            exist_ok=True,
-        )
-        self.connection = sqlite3.connect(self.database_path)
+    def __init__(
+            self,
+            database_path: str | Path | None = None,
+            *,
+            connection: sqlite3.Connection | None = None,
+    ) -> None:
+        self._owns_connection = connection is None
+
+        if connection is not None:
+            self.connection = connection
+        elif database_path is not None:
+            self.database_path = Path(database_path)
+            self.database_path.parent.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
+            self.connection = sqlite3.connect(self.database_path)
+        else:
+            raise ValueError(
+                "Either database_path or connection must be provided"
+            )
+
         self.connection.row_factory = sqlite3.Row
         self._create_tables()
 
-        # self.tasks: dict[str, dict] = {}
 
     def _create_tables(self) -> None:
         self.connection.execute(
@@ -112,8 +126,43 @@ class StateManager:
         )
         self.connection.commit()
 
+    def transition_in_transaction(
+            self,
+            task_id: str,
+            new_status: TaskStatus,
+    ) -> None:
+        row = self.connection.execute(
+            """
+            SELECT status
+            FROM tasks
+            WHERE task_id = ?
+            """,
+            (task_id,),
+        ).fetchone()
+
+        if row is None:
+            raise ValueError(f"Unknown task: {task_id}")
+
+        current_status = TaskStatus(row["status"])
+        allowed = self.ALLOWED_TRANSITIONS.get(current_status, set())
+
+        if new_status not in allowed:
+            raise ValueError(
+                f"Invalid transition: {current_status} -> {new_status}"
+            )
+
+        self.connection.execute(
+            """
+            UPDATE tasks
+            SET status = ?
+            WHERE task_id = ?
+            """,
+            (new_status.value, task_id),
+        )
+
     def close(self) -> None:
-        self.connection.close()
+        if self._owns_connection:
+            self.connection.close()
 
     def __enter__(self) -> Self:
         return self

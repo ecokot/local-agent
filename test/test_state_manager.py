@@ -134,3 +134,68 @@ def test_context_manager_closes_connection_after_exception(tmp_path):
 
     with pytest.raises(sqlite3.ProgrammingError):
         connection.execute("SELECT 1")
+
+
+
+def test_transition_in_transaction_changes_status(tmp_path):
+    with StateManager(tmp_path / "test.db") as manager:
+        task_id = manager.create_task("Test task")
+        manager.transition(task_id, TaskStatus.RUNNING)
+
+        with manager.connection:
+            manager.transition_in_transaction(
+                task_id,
+                TaskStatus.WAITING_FOR_APPROVAL,
+            )
+
+        assert manager.get_state(task_id) == TaskStatus.WAITING_FOR_APPROVAL
+
+
+def test_transition_in_transaction_does_not_commit(tmp_path):
+    with StateManager(tmp_path / "test.db") as manager:
+        task_id = manager.create_task("Test task")
+        manager.transition(task_id, TaskStatus.RUNNING)
+
+        manager.connection.execute("BEGIN")
+
+        manager.transition_in_transaction(
+            task_id,
+            TaskStatus.WAITING_FOR_APPROVAL,
+        )
+
+        assert manager.connection.in_transaction
+
+        manager.connection.rollback()
+
+        assert manager.get_state(task_id) == TaskStatus.RUNNING
+
+
+def test_transition_in_transaction_rejects_invalid_transition(tmp_path):
+    with StateManager(tmp_path / "test.db") as manager:
+        task_id = manager.create_task("Test task")
+
+        with pytest.raises(ValueError):
+            manager.transition_in_transaction(
+                task_id,
+                TaskStatus.SUCCEEDED,
+            )
+
+def test_close_does_not_close_external_connection():
+    connection = sqlite3.connect(":memory:")
+
+    manager = StateManager(connection=connection)
+    manager.close()
+
+    # Соединение должно оставаться доступным.
+    connection.execute("SELECT 1")
+
+    connection.close()
+
+def test_close_closes_owned_connection(tmp_path):
+    manager = StateManager(tmp_path / "test.db")
+    connection = manager.connection
+
+    manager.close()
+
+    with pytest.raises(sqlite3.ProgrammingError):
+        connection.execute("SELECT 1")

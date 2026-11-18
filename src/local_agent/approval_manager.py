@@ -8,13 +8,40 @@ from typing import Self
 from uuid import uuid4
 
 from local_agent.models import Approval, ApprovalStatus
+from local_agent.state_manager import StateManager, TaskStatus
 
 
 class ApprovalManager:
-    def __init__(self, database_path: str | Path) -> None:
-        self.connection = sqlite3.connect(database_path)
+    def __init__(
+            self,
+            database_path: str | Path | None = None,
+            *,
+            connection: sqlite3.Connection | None = None,
+            state_manager: StateManager | None = None,
+    ) -> None:
+        self._owns_connection = connection is None
+
+        if connection is not None:
+            self.connection = connection
+        elif database_path is not None:
+            self.connection = sqlite3.connect(database_path)
+        else:
+            raise ValueError(
+                "Either database_path or connection must be provided"
+            )
+
         self.connection.row_factory = sqlite3.Row
         self.connection.execute("PRAGMA foreign_keys = ON")
+
+        if (
+                state_manager is not None
+                and state_manager.connection is not self.connection
+        ):
+            raise ValueError(
+                "ApprovalManager and StateManager must use the same connection"
+            )
+
+        self.state_manager = state_manager
 
         self._create_table()
 
@@ -80,15 +107,19 @@ class ApprovalManager:
         )
 
     def request_approval(
-        self,
-        task_id: str,
-        action_type: str,
-        parameters: dict,
+            self,
+            task_id: str,
+            action_type: str,
+            parameters: dict,
     ) -> Approval:
         parameters_json, parameters_hash = self._serialize_parameters(
             parameters
         )
 
+        if self.connection.in_transaction:
+            raise RuntimeError(
+                "Cannot request approval inside an active transaction"
+            )
 
         self.connection.execute("BEGIN IMMEDIATE")
 
@@ -145,6 +176,15 @@ class ApprovalManager:
                 ),
             )
 
+            if self.state_manager is not None:
+                current_status = self.state_manager.get_state(task_id)
+
+                if current_status != TaskStatus.WAITING_FOR_APPROVAL:
+                    self.state_manager.transition_in_transaction(
+                        task_id,
+                        TaskStatus.WAITING_FOR_APPROVAL,
+                    )
+
             self.connection.commit()
 
         except Exception:
@@ -166,18 +206,45 @@ class ApprovalManager:
         return self._row_to_approval(row)
 
     def _decide(
-        self,
-        approval_id: str,
-        status: ApprovalStatus,
+            self,
+            approval_id: str,
+            status: ApprovalStatus,
     ) -> Approval:
-        decided_at = datetime.now(UTC).isoformat()
+        if self.connection.in_transaction:
+            raise RuntimeError(
+                "Cannot decide approval inside an active transaction"
+            )
 
-        with self.connection:
-            cursor = self.connection.execute(
+        self.connection.execute("BEGIN IMMEDIATE")
+
+        try:
+            row = self.connection.execute(
+                """
+                SELECT task_id
+                FROM approvals
+                WHERE approval_id = ?
+                  AND status = ?
+                """,
+                (
+                    approval_id,
+                    ApprovalStatus.PENDING.value,
+                ),
+            ).fetchone()
+
+            if row is None:
+                raise ValueError(
+                    f"Approval is not pending: {approval_id}"
+                )
+
+            task_id = row["task_id"]
+            decided_at = datetime.now(UTC).isoformat()
+
+            self.connection.execute(
                 """
                 UPDATE approvals
                 SET status = ?, decided_at = ?
-                WHERE approval_id = ? AND status = ?
+                WHERE approval_id = ?
+                  AND status = ?
                 """,
                 (
                     status.value,
@@ -187,10 +254,31 @@ class ApprovalManager:
                 ),
             )
 
-            if cursor.rowcount != 1:
-                raise ValueError(
-                    f"Approval is not pending: {approval_id}"
-                )
+            if self.state_manager is not None:
+                pending = self.connection.execute(
+                    """
+                    SELECT COUNT(*)
+                    FROM approvals
+                    WHERE task_id = ?
+                      AND status = ?
+                    """,
+                    (
+                        task_id,
+                        ApprovalStatus.PENDING.value,
+                    ),
+                ).fetchone()[0]
+
+                if pending == 0:
+                    self.state_manager.transition_in_transaction(
+                        task_id,
+                        TaskStatus.RUNNING,
+                    )
+
+            self.connection.commit()
+
+        except Exception:
+            self.connection.rollback()
+            raise
 
         return self.get_approval(approval_id)
 
@@ -229,7 +317,8 @@ class ApprovalManager:
         return row is not None
 
     def close(self) -> None:
-        self.connection.close()
+        if self._owns_connection:
+            self.connection.close()
 
     def __enter__(self) -> Self:
         return self
