@@ -1,5 +1,6 @@
 from typing import ClassVar
 
+from local_agent.approval_manager import ApprovalManager
 from local_agent.execution.models import ExecutionEventType
 from local_agent.execution.recorder import ExecutionRecorder
 from local_agent.models import ExecutionStatus
@@ -17,12 +18,14 @@ class RecoveryManager:
     }
 
     def __init__(
-        self,
-        state_manager: StateManager,
-        execution_recorder: ExecutionRecorder,
+            self,
+            state_manager: StateManager,
+            execution_recorder: ExecutionRecorder,
+            approval_manager: ApprovalManager,
     ) -> None:
         self.state_manager = state_manager
         self.execution_recorder = execution_recorder
+        self.approval_manager = approval_manager
 
     def recover(self) -> None:
         tasks = self.state_manager.get_tasks()
@@ -30,17 +33,37 @@ class RecoveryManager:
         for task in tasks:
             task_id = task.task_id
 
+            if task.status == TaskStatus.WAITING_FOR_APPROVAL:
+                pending_approvals = (
+                    self.approval_manager.get_pending_approvals(task_id)
+                )
+
+                if not pending_approvals:
+                    raise RecoveryError(
+                        f"Task {task_id} is WAITING_FOR_APPROVAL "
+                        "but has no pending approvals"
+                    )
+
+                continue
+
             if task.status != TaskStatus.RUNNING:
                 continue
+
+            pending_approvals = (
+                self.approval_manager.get_pending_approvals(task_id)
+            )
+
+            if pending_approvals:
+                raise RecoveryError(
+                    f"Task {task_id} is RUNNING but has pending approvals"
+                )
 
             executions = (
                 self.execution_recorder.get_executions_for_task(task_id)
             )
 
             if not executions:
-                raise RecoveryError(
-                    f"Task {task_id} is RUNNING but has no executions"
-                )
+                continue
 
             latest_execution = executions[-1]
             execution_id = latest_execution.execution_id

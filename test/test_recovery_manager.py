@@ -1,6 +1,10 @@
+import sqlite3
+
 import pytest
 
+from local_agent.approval_manager import ApprovalManager
 from local_agent.execution.recorder import ExecutionRecorder
+from local_agent.models import ApprovalStatus
 from local_agent.recovery_manager import RecoveryError, RecoveryManager
 from local_agent.state_manager import StateManager, TaskStatus
 
@@ -10,7 +14,15 @@ def components(tmp_path):
     database_path = tmp_path / "agent.db"
     trace_directory = tmp_path / "traces"
 
-    state_manager = StateManager(database_path)
+    connection = sqlite3.connect(database_path)
+
+    state_manager = StateManager(connection=connection)
+
+    approval_manager = ApprovalManager(
+        connection=connection,
+        state_manager=state_manager,
+    )
+
     execution_recorder = ExecutionRecorder(
         database_path,
         trace_directory,
@@ -18,13 +30,16 @@ def components(tmp_path):
 
     recovery_manager = RecoveryManager(
         state_manager,
-        execution_recorder
+        execution_recorder,
+        approval_manager,
     )
 
     yield state_manager, execution_recorder, recovery_manager
 
     execution_recorder.close()
+    approval_manager.close()
     state_manager.close()
+    connection.close()
 
 @pytest.fixture
 def running_task(components):
@@ -34,7 +49,6 @@ def running_task(components):
     state_manager.transition(task_id, TaskStatus.RUNNING)
 
     return task_id
-
 
 def test_recovers_successful_execution(
     components,
@@ -135,13 +149,131 @@ def test_recovery_is_idempotent(
     recovery.recover()
     assert state_manager.get_state(running_task) == TaskStatus.SUCCEEDED
 
-def test_running_task_without_executions_raises_error(components):
+def test_running_task_without_executions_remains_running(components):
     state_manager, _, recovery_manager = components
 
     task_id = state_manager.create_task("Task without execution")
     state_manager.transition(task_id, TaskStatus.RUNNING)
 
-    with pytest.raises(RecoveryError, match="has no executions"):
-        recovery_manager.recover()
+    recovery_manager.recover()
 
     assert state_manager.get_state(task_id) == TaskStatus.RUNNING
+
+def test_waiting_task_with_pending_approval_remains_waiting(components):
+    state_manager, _, recovery_manager = components
+
+    task_id = state_manager.create_task("Task awaiting approval")
+    state_manager.transition(task_id, TaskStatus.RUNNING)
+
+    recovery_manager.approval_manager.request_approval(
+        task_id,
+        "write_file",
+        {"path": "example.py"},
+    )
+
+    recovery_manager.recover()
+
+    assert state_manager.get_state(task_id) == TaskStatus.WAITING_FOR_APPROVAL
+
+def test_waiting_task_without_pending_approval_raises_error(components):
+    state_manager, _, recovery_manager = components
+
+    task_id = state_manager.create_task("Task without approval")
+    state_manager.transition(task_id, TaskStatus.RUNNING)
+    state_manager.transition(task_id, TaskStatus.WAITING_FOR_APPROVAL)
+
+    with pytest.raises(RecoveryError, match="has no pending approvals"):
+        recovery_manager.recover()
+
+def test_running_task_with_pending_approval_raises_error(components):
+    state_manager, _, recovery_manager = components
+
+    task_id = state_manager.create_task("Inconsistent task")
+    state_manager.transition(task_id, TaskStatus.RUNNING)
+
+    recovery_manager.approval_manager.request_approval(
+        task_id,
+        "write_file",
+        {"path": "example.py"},
+    )
+
+    state_manager.connection.execute(
+        "UPDATE tasks SET status = ? WHERE task_id = ?",
+        (TaskStatus.RUNNING.value, task_id),
+    )
+    state_manager.connection.commit()
+
+    with pytest.raises(RecoveryError, match="has pending approvals"):
+        recovery_manager.recover()
+
+def test_pending_approval_survives_restart(tmp_path):
+    database_path = tmp_path / "agent.db"
+    trace_directory = tmp_path / "traces"
+
+    # Первый запуск
+    connection = sqlite3.connect(database_path)
+    state_manager = StateManager(connection=connection)
+
+    approval_manager = ApprovalManager(
+        connection=connection,
+        state_manager=state_manager,
+    )
+    execution_recorder = ExecutionRecorder(
+        database_path,
+        trace_directory,
+    )
+
+    task_id = state_manager.create_task("Persistent approval")
+    state_manager.transition(task_id, TaskStatus.RUNNING)
+
+    approval = approval_manager.request_approval(
+        task_id,
+        "write_file",
+        {"path": "example.py"},
+    )
+
+    assert state_manager.get_state(task_id) == TaskStatus.WAITING_FOR_APPROVAL
+
+    # Имитируем завершение приложения
+    execution_recorder.close()
+    approval_manager.close()
+    state_manager.close()
+    connection.close()
+
+    # Второй запуск — новые соединения и экземпляры менеджеров
+    connection = sqlite3.connect(database_path)
+    state_manager = StateManager(connection=connection)
+
+    approval_manager = ApprovalManager(
+        connection=connection,
+        state_manager=state_manager,
+    )
+    execution_recorder = ExecutionRecorder(
+        database_path,
+        trace_directory,
+    )
+
+    recovery_manager = RecoveryManager(
+        state_manager,
+        execution_recorder,
+        approval_manager,
+    )
+
+    try:
+        pending = approval_manager.get_pending_approvals(task_id)
+
+        assert len(pending) == 1
+        assert pending[0].approval_id == approval.approval_id
+        assert pending[0].status == ApprovalStatus.PENDING
+
+        recovery_manager.recover()
+
+        assert (
+            state_manager.get_state(task_id)
+            == TaskStatus.WAITING_FOR_APPROVAL
+        )
+    finally:
+        execution_recorder.close()
+        approval_manager.close()
+        state_manager.close()
+        connection.close()

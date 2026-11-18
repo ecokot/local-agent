@@ -378,3 +378,24 @@ def test_approve_rolls_back_if_task_transition_fails(managers):
     assert restored.status == ApprovalStatus.PENDING
     assert restored.decided_at is None
     assert state_manager.get_state(task_id) == TaskStatus.CANCELLED
+
+def test_get_pending_approvals_returns_only_pending(managers):
+    task_id, approval_manager, _ = managers
+
+    pending = approval_manager.request_approval(
+        task_id,
+        "write_file",
+        {"path": "example.py"},
+    )
+    approved = approval_manager.request_approval(
+        task_id,
+        "delete_file",
+        {"path": "old.py"},
+    )
+
+    approval_manager.approve(approved.approval_id)
+
+    result = approval_manager.get_pending_approvals(task_id)
+
+    assert len(result) == 1
+    assert result[0].approval_id == pending.approval_id

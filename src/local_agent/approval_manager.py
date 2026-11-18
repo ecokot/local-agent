@@ -316,6 +316,20 @@ class ApprovalManager:
 
         return row is not None
 
+    def get_pending_approvals(self, task_id: str) -> list[Approval]:
+        rows = self.connection.execute(
+            """
+            SELECT *
+            FROM approvals
+            WHERE task_id = ?
+              AND status = ?
+            ORDER BY created_at, rowid
+            """,
+            (task_id, ApprovalStatus.PENDING.value),
+        ).fetchall()
+
+        return [self._row_to_approval(row) for row in rows]
+
     def close(self) -> None:
         if self._owns_connection:
             self.connection.close()
