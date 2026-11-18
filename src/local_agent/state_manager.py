@@ -1,5 +1,7 @@
+import sqlite3
 from enum import StrEnum
-from typing import ClassVar
+from pathlib import Path
+from typing import ClassVar, Self
 from uuid import uuid4
 
 
@@ -30,8 +32,28 @@ class StateManager:
         },
     }
 
-    def __init__(self) -> None:
-        self.tasks: dict[str, dict] = {}
+    def __init__(self, database_path: str | Path) -> None:
+        self.database_path = Path(database_path)
+        self.database_path.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+        self.connection = sqlite3.connect(self.database_path)
+        self.connection.row_factory = sqlite3.Row
+        self._create_tables()
+
+        # self.tasks: dict[str, dict] = {}
+
+    def _create_tables(self) -> None:
+        self.connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tasks (
+                task_id TEXT PRIMARY KEY,
+                description TEXT NOT NULL,
+                status TEXT NOT NULL
+            )
+            """)
+        self.connection.commit()
 
     def create_task(self, description: str) -> str:
         if not description.strip():
@@ -39,17 +61,30 @@ class StateManager:
 
         task_id = str(uuid4())
 
-        self.tasks[task_id] = {
-            "description": description,
-            "status": TaskStatus.CREATED,
-        }
+        self.connection.execute(
+            """
+            INSERT INTO tasks (task_id, description, status)
+            VALUES (?, ?, ?)
+            """,
+            (task_id, description, TaskStatus.CREATED.value),
+        )
+        self.connection.commit()
         return task_id
 
     def get_state(self, task_id: str) -> TaskStatus:
-        if task_id not in self.tasks:
-            raise ValueError(f"Unknown task: {task_id}")
+        cursor = self.connection.execute(
+            """
+            SELECT status
+            FROM tasks
+            WHERE task_id = ?
+            """,
+            (task_id,),
+        )
+        row = cursor.fetchone()
 
-        return self.tasks[task_id]["status"]
+        if row is None:
+            raise ValueError(f"Unknown task: {task_id}")
+        return TaskStatus(row["status"])
 
     def transition(
             self,
@@ -65,4 +100,21 @@ class StateManager:
                 f"Invalid transition: {current_status} -> {new_status}"
             )
 
-        self.tasks[task_id]["status"] = new_status
+        self.connection.execute(
+            """
+            UPDATE tasks
+            SET status = ?
+            WHERE task_id = ?
+            """,
+            (new_status.value, task_id)
+        )
+        self.connection.commit()
+
+    def close(self) -> None:
+        self.connection.close()
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        self.close()

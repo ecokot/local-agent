@@ -377,7 +377,7 @@ def test_recovery_rejects_corrupted_middle_trace_line(tmp_path):
     trace_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     with pytest.raises(ExecutionRecorderError):
-        ExecutionRecorder(database, traces)й
+        ExecutionRecorder(database, traces)
 def test_recovery_handles_valid_json_without_trailing_newline(tmp_path):
     database = tmp_path / "agent.db"
     traces = tmp_path / "traces"
