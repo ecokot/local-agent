@@ -477,4 +477,26 @@ class ExecutionRecorder:
     def __exit__(self, exc_type, exc_val, traceback) -> None:
         self.close()
 
-
+    def get_executions_for_task(
+            self,
+            task_id: str,
+    ) -> list[dict[str, str | None]]:
+        with self._lock:
+            rows = self._connection.execute(
+                """
+                SELECT execution_id, status, started_at, finished_at
+                FROM executions
+                WHERE task_id = ?
+                ORDER BY rowid
+                """,
+                (task_id,)
+            ).fetchall()
+        return [
+            {
+                "execution_id": row["execution_id"],
+                "status": row["status"],
+                "started_at": row["started_at"],
+                "finished_at": row["finished_at"],
+            }
+            for row in rows
+        ]

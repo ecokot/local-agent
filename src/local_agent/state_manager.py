@@ -118,3 +118,21 @@ class StateManager:
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
         self.close()
+
+    def get_tasks(self) -> list[dict[str, str]]:
+        rows = self.connection.execute(
+            """
+            SELECT task_id, description, status
+            FROM tasks
+            ORDER BY rowid
+            """
+        ).fetchall()
+
+        return [
+            {
+                "task_id": row["task_id"],
+                "description": row["description"],
+                "status": row["status"],
+            }
+            for row in rows
+        ]

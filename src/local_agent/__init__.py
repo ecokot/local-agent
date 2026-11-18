@@ -12,16 +12,17 @@ def main() -> None:
 
     data_directory.mkdir(parents=True, exist_ok=True)
 
-    with StateManager(database_path) as state_manager:
-        with ExecutionRecorder(
+    with (
+        StateManager(database_path) as state_manager,
+        ExecutionRecorder(
             database_path,
             trace_directory,
-        ) as execution_recorder:
-            task_id = state_manager.create_task(
-                "Проверка совместной работы компонентов"
-            )
+        ) as execution_recorder,
+    ):
+        task_id = state_manager.create_task(
+            "Проверка совместной работы компонентов"
+        )
+        execution_id = execution_recorder.start_execution(task_id)
 
-            execution_id = execution_recorder.start_execution(task_id)
-
-            print(f"Task ID: {task_id}")
-            print(f"Execution ID: {execution_id}")
+        print(f"Task ID: {task_id}")
+        print(f"Execution ID: {execution_id}")
