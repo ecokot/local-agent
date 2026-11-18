@@ -45,11 +45,27 @@ class ExecutionRecorder:
             self._connection.execute("""
                 CREATE TABLE IF NOT EXISTS executions (
                     execution_id TEXT PRIMARY KEY,
+                    task_id TEXT NOT NULL REFERENCES tasks(task_id),
                     status TEXT NOT NULL,
                     started_at TEXT NOT NULL,
                     finished_at TEXT
                 )
             """)
+
+            columns = {
+                row["name"]
+                for row in self._connection.execute(
+                    "PRAGMA table_info(executions)"
+                ).fetchall()
+            }
+
+            # Миграция старой таблицы: старые выполнения
+            # сохраняются, но остаются без привязанной задачи.
+            if "task_id" not in columns:
+                self._connection.execute("""
+                    ALTER TABLE executions
+                    ADD COLUMN task_id TEXT REFERENCES tasks(task_id)
+                """)
 
             self._connection.execute("""
                 CREATE TABLE IF NOT EXISTS execution_events (
@@ -113,7 +129,7 @@ class ExecutionRecorder:
 
         return existing_event_ids
 
-    def start_execution(self) -> str:
+    def start_execution(self, task_id: str) -> str:
         execution_id = str(uuid4())
         timestamp = datetime.now(UTC).isoformat()
 
@@ -128,11 +144,14 @@ class ExecutionRecorder:
                     self._connection.execute(
                         """
                         INSERT INTO executions (
-                            execution_id, status, started_at
+                            execution_id,
+                            task_id,
+                            status,
+                            started_at
                         )
-                        VALUES (?, 'RUNNING', ?)
+                        VALUES (?, ?, 'RUNNING', ?)
                         """,
-                        (execution_id, timestamp),
+                        (execution_id, task_id, timestamp),
                     )
 
                     self._connection.execute(

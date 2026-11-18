@@ -1,3 +1,4 @@
+
 import json
 import sqlite3
 
@@ -8,6 +9,7 @@ from local_agent.execution import (
     ExecutionRecorder,
     ExecutionRecorderError,
 )
+from local_agent.state_manager import StateManager
 
 
 class FailingConnection(sqlite3.Connection):
@@ -19,8 +21,15 @@ class FailingConnection(sqlite3.Connection):
 
         return super().execute(sql, parameters)
 
+
 @pytest.fixture
-def recorder(tmp_path):
+def task_id(tmp_path):
+    with StateManager(tmp_path / "agent.db") as state:
+        return state.create_task("Test task")
+
+
+@pytest.fixture
+def recorder(tmp_path, task_id):
     instance = ExecutionRecorder(
         tmp_path / "agent.db",
         tmp_path / "traces",
@@ -67,14 +76,14 @@ def test_event_is_immutable():
         event.event_type = "FAILED"
 
 
-def test_start_execution(recorder):
-    execution_id = recorder.start_execution()
+def test_start_execution(recorder, task_id):
+    execution_id = recorder.start_execution(task_id)
 
     assert recorder.get_status(execution_id) == "RUNNING"
 
 
-def test_record_event(recorder):
-    execution_id = recorder.start_execution()
+def test_record_event(recorder, task_id):
+    execution_id = recorder.start_execution(task_id)
 
     event = recorder.record_event(
         execution_id,
@@ -88,8 +97,8 @@ def test_record_event(recorder):
     assert events[-1].event_type == "FILE_CREATED"
 
 
-def test_finish_execution(recorder):
-    execution_id = recorder.start_execution()
+def test_finish_execution(recorder, task_id):
+    execution_id = recorder.start_execution(task_id)
 
     recorder.finish_execution(
         execution_id,
@@ -99,16 +108,16 @@ def test_finish_execution(recorder):
     assert recorder.get_status(execution_id) == "SUCCEEDED"
 
 
-def test_fail_execution(recorder):
-    execution_id = recorder.start_execution()
+def test_fail_execution(recorder, task_id):
+    execution_id = recorder.start_execution(task_id)
 
     recorder.fail_execution(execution_id, "Test error")
 
     assert recorder.get_status(execution_id) == "FAILED"
 
 
-def test_cannot_finish_execution_twice(recorder):
-    execution_id = recorder.start_execution()
+def test_cannot_finish_execution_twice(recorder, task_id):
+    execution_id = recorder.start_execution(task_id)
 
     recorder.finish_execution(execution_id)
 
@@ -116,12 +125,12 @@ def test_cannot_finish_execution_twice(recorder):
         recorder.finish_execution(execution_id)
 
 
-def test_incomplete_execution_is_detected(tmp_path):
+def test_incomplete_execution_is_detected(tmp_path, task_id):
     database = tmp_path / "agent.db"
     traces = tmp_path / "traces"
 
     recorder = ExecutionRecorder(database, traces)
-    execution_id = recorder.start_execution()
+    execution_id = recorder.start_execution(task_id)
     recorder.close()
 
     recorder = ExecutionRecorder(database, traces)
@@ -131,8 +140,8 @@ def test_incomplete_execution_is_detected(tmp_path):
     recorder.close()
 
 
-def test_trace_file_contains_events(recorder, tmp_path):
-    execution_id = recorder.start_execution()
+def test_trace_file_contains_events(recorder, tmp_path, task_id):
+    execution_id = recorder.start_execution(task_id)
 
     recorder.record_event(
         execution_id,
@@ -147,8 +156,8 @@ def test_trace_file_contains_events(recorder, tmp_path):
     assert json.loads(lines[1])["event_type"] == "TEST_EVENT"
 
 
-def test_secrets_are_redacted(recorder):
-    execution_id = recorder.start_execution()
+def test_secrets_are_redacted(recorder, task_id):
+    execution_id = recorder.start_execution(task_id)
 
     recorder.record_event(
         execution_id,
@@ -173,12 +182,17 @@ def test_unknown_execution_is_rejected(recorder):
     with pytest.raises(ExecutionRecorderError):
         recorder.get_status("00000000-0000-0000-0000-000000000000")
 
-def test_trace_is_recovered_after_write_failure(tmp_path, monkeypatch):
+
+def test_trace_is_recovered_after_write_failure(
+    tmp_path,
+    monkeypatch,
+    task_id,
+):
     database = tmp_path / "agent.db"
     traces = tmp_path / "traces"
 
     recorder = ExecutionRecorder(database, traces)
-    execution_id = recorder.start_execution()
+    execution_id = recorder.start_execution(task_id)
 
     original_open = type(recorder._trace_path(execution_id)).open
     failed = False
@@ -221,8 +235,12 @@ def test_trace_is_recovered_after_write_failure(tmp_path, monkeypatch):
     recovered.close()
 
 
-def test_recovery_does_not_duplicate_trace_events(recorder, tmp_path):
-    execution_id = recorder.start_execution()
+def test_recovery_does_not_duplicate_trace_events(
+    recorder,
+    tmp_path,
+    task_id,
+):
+    execution_id = recorder.start_execution(task_id)
 
     event = recorder.record_event(execution_id, "TEST_EVENT")
 
@@ -250,7 +268,7 @@ def test_recovery_does_not_duplicate_trace_events(recorder, tmp_path):
     ) == 1
 
 
-def test_start_execution_is_atomic(tmp_path):
+def test_start_execution_is_atomic(tmp_path, task_id):
     database = tmp_path / "agent.db"
     traces = tmp_path / "traces"
 
@@ -263,9 +281,10 @@ def test_start_execution_is_atomic(tmp_path):
         check_same_thread=False,
     )
     recorder._connection.row_factory = sqlite3.Row
+    recorder._connection.execute("PRAGMA foreign_keys = ON")
 
     with pytest.raises(ExecutionRecorderError):
-        recorder.start_execution()
+        recorder.start_execution(task_id)
 
     executions = recorder._connection.execute(
         "SELECT COUNT(*) FROM executions"
@@ -280,6 +299,7 @@ def test_start_execution_is_atomic(tmp_path):
 
     recorder.close()
 
+
 def test_record_event_rejects_unknown_execution(recorder):
     with pytest.raises(ExecutionRecorderError):
         recorder.record_event(
@@ -287,19 +307,20 @@ def test_record_event_rejects_unknown_execution(recorder):
             "TEST_EVENT",
         )
 
+
 def test_recovery_repairs_incomplete_last_trace_line(
     tmp_path,
     monkeypatch,
+    task_id,
 ):
     database = tmp_path / "agent.db"
     traces = tmp_path / "traces"
 
     recorder = ExecutionRecorder(database, traces)
-    execution_id = recorder.start_execution()
+    execution_id = recorder.start_execution(task_id)
 
     trace_path = traces / f"{execution_id}.jsonl"
 
-    # Имитируем сбой записи трассы после сохранения события в SQLite.
     def simulate_crash():
         raise OSError("Simulated crash")
 
@@ -312,8 +333,6 @@ def test_recovery_repairs_incomplete_last_trace_line(
     with pytest.raises(OSError, match="Simulated crash"):
         recorder.record_event(execution_id, "TEST_EVENT")
 
-    # Проверяем, что событие сохранилось в SQLite,
-    # но ещё не записано в JSONL.
     pending = recorder._connection.execute(
         """
         SELECT trace_written
@@ -324,13 +343,11 @@ def test_recovery_repairs_incomplete_last_trace_line(
 
     assert pending["trace_written"] == 0
 
-    # Имитируем обрыв записи последней строки JSONL.
     with trace_path.open("a", encoding="utf-8") as file:
         file.write('{"event_id": "incomplete')
 
     recorder._connection.close()
 
-    # Перезапуск агента должен восстановить трассу.
     recovered = ExecutionRecorder(database, traces)
 
     events = recovered.get_events(execution_id)
@@ -347,12 +364,16 @@ def test_recovery_repairs_incomplete_last_trace_line(
 
     recovered.close()
 
-def test_recovery_rejects_corrupted_middle_trace_line(tmp_path):
+
+def test_recovery_rejects_corrupted_middle_trace_line(
+    tmp_path,
+    task_id,
+):
     database = tmp_path / "agent.db"
     traces = tmp_path / "traces"
 
     recorder = ExecutionRecorder(database, traces)
-    execution_id = recorder.start_execution()
+    execution_id = recorder.start_execution(task_id)
 
     trace_path = traces / f"{execution_id}.jsonl"
 
@@ -360,7 +381,6 @@ def test_recovery_rejects_corrupted_middle_trace_line(tmp_path):
     recorder.record_event(execution_id, "EVENT_2")
     recorder.close()
 
-    # Помечаем последнее событие как ожидающее записи в JSONL.
     with sqlite3.connect(database) as connection:
         connection.execute(
             """
@@ -370,7 +390,6 @@ def test_recovery_rejects_corrupted_middle_trace_line(tmp_path):
             """
         )
 
-    # Повреждаем вторую строку.
     lines = trace_path.read_text(encoding="utf-8").splitlines()
     lines[1] = '{"event_id": "broken"} invalid'
 
@@ -378,12 +397,17 @@ def test_recovery_rejects_corrupted_middle_trace_line(tmp_path):
 
     with pytest.raises(ExecutionRecorderError):
         ExecutionRecorder(database, traces)
-def test_recovery_handles_valid_json_without_trailing_newline(tmp_path):
+
+
+def test_recovery_handles_valid_json_without_trailing_newline(
+    tmp_path,
+    task_id,
+):
     database = tmp_path / "agent.db"
     traces = tmp_path / "traces"
 
     recorder = ExecutionRecorder(database, traces)
-    execution_id = recorder.start_execution()
+    execution_id = recorder.start_execution(task_id)
 
     trace_path = traces / f"{execution_id}.jsonl"
 
@@ -401,3 +425,107 @@ def test_recovery_handles_valid_json_without_trailing_newline(tmp_path):
     assert all(isinstance(json.loads(line), dict) for line in lines)
 
     recovered.close()
+
+
+def test_execution_is_linked_to_task(recorder, task_id):
+    execution_id = recorder.start_execution(task_id)
+
+    row = recorder._connection.execute(
+        """
+        SELECT task_id
+        FROM executions
+        WHERE execution_id = ?
+        """,
+        (execution_id,),
+    ).fetchone()
+
+    assert row["task_id"] == task_id
+
+
+def test_multiple_executions_can_belong_to_one_task(
+    recorder,
+    task_id,
+):
+    first = recorder.start_execution(task_id)
+    second = recorder.start_execution(task_id)
+
+    rows = recorder._connection.execute(
+        """
+        SELECT task_id
+        FROM executions
+        WHERE execution_id IN (?, ?)
+        """,
+        (first, second),
+    ).fetchall()
+
+    assert len(rows) == 2
+    assert all(row["task_id"] == task_id for row in rows)
+
+
+def test_execution_rejects_unknown_task(recorder):
+    with pytest.raises(ExecutionRecorderError):
+        recorder.start_execution(
+            "00000000-0000-0000-0000-000000000000"
+        )
+
+    count = recorder._connection.execute(
+        "SELECT COUNT(*) FROM executions"
+    ).fetchone()[0]
+
+    assert count == 0
+
+
+def test_old_database_is_migrated(tmp_path, task_id):
+    database = tmp_path / "agent.db"
+    traces = tmp_path / "traces"
+
+    with sqlite3.connect(database) as connection:
+        connection.execute("""
+            CREATE TABLE executions (
+                execution_id TEXT PRIMARY KEY,
+                status TEXT NOT NULL,
+                started_at TEXT NOT NULL,
+                finished_at TEXT
+            )
+        """)
+
+        connection.execute("""
+            INSERT INTO executions (
+                execution_id,
+                status,
+                started_at
+            )
+            VALUES (
+                'old-execution',
+                'SUCCEEDED',
+                '2026-01-01T00:00:00+00:00'
+            )
+        """)
+
+    recorder = ExecutionRecorder(database, traces)
+
+    try:
+        columns = {
+            row["name"]
+            for row in recorder._connection.execute(
+                "PRAGMA table_info(executions)"
+            )
+        }
+
+        old_execution = recorder._connection.execute(
+            """
+            SELECT task_id
+            FROM executions
+            WHERE execution_id = 'old-execution'
+            """
+        ).fetchone()
+
+        assert "task_id" in columns
+        assert old_execution["task_id"] is None
+
+        new_execution = recorder.start_execution(task_id)
+
+        assert recorder.get_status(new_execution) == "RUNNING"
+
+    finally:
+        recorder.close()
