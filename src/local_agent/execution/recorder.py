@@ -13,6 +13,7 @@ from local_agent.execution.models import ExecutionEvent
 class ExecutionRecorderError(Exception):
     """Base error for execution recording."""
 
+
 class ExecutionRecorder:
     def __init__(
             self,
@@ -34,6 +35,7 @@ class ExecutionRecorder:
             self.database_path,
             check_same_thread=False,
         )
+        self._connection.execute("PRAGMA foreign_keys = ON")
         self._connection.row_factory = sqlite3.Row
         self._initialize_database()
         self._recover_traces()
@@ -67,6 +69,49 @@ class ExecutionRecorder:
                 idx_execution_events_execution_id
                 ON execution_events(execution_id)
             """)
+
+    def _read_existing_event_ids(self, trace_path: Path) -> set[str]:
+        if not trace_path.exists():
+            return set()
+
+        content = trace_path.read_bytes()
+        lines = content.splitlines(keepends=True)
+
+        existing_event_ids = set()
+        offset = 0
+
+        for index, line in enumerate(lines):
+            line_is_complete = line.endswith(b"\n")
+            is_last_line = index == len(lines) - 1
+            line_content = line.rstrip(b"\r\n")
+
+            if not line_content.strip():
+                offset += len(line)
+                continue
+
+            try:
+                saved_event = json.loads(line_content)
+            except json.JSONDecodeError as exc:
+                if is_last_line and not line_is_complete:
+                    # Удаляем только незавершённую последнюю строку.
+                    with trace_path.open("r+b") as file:
+                        file.truncate(offset)
+
+                    break
+
+                raise ExecutionRecorderError(
+                    f"Corrupted trace file: {trace_path}"
+                ) from exc
+
+            existing_event_ids.add(saved_event["event_id"])
+
+            if is_last_line and not line_is_complete:
+                with trace_path.open("ab") as file:
+                    file.write(b"\n")
+
+            offset += len(line)
+
+        return existing_event_ids
 
     def start_execution(self) -> str:
         execution_id = str(uuid4())
@@ -140,7 +185,7 @@ class ExecutionRecorder:
             try:
                 with self._connection:
                     self._connection.execute(
-                    """
+                        """
                     INSERT INTO execution_events (
                         event_id,
                         execution_id,
@@ -150,14 +195,14 @@ class ExecutionRecorder:
                     )
                     VALUES (?, ?, ?, ?, ?)
                     """,
-                    (
-                        event.event_id,
-                        event.execution_id,
-                        event.event_type,
-                        event.timestamp,
-                        serialized_data,
-                    ),
-                )
+                        (
+                            event.event_id,
+                            event.execution_id,
+                            event.event_type,
+                            event.timestamp,
+                            serialized_data,
+                        ),
+                    )
             except sqlite3.Error as exc:
                 raise ExecutionRecorderError(
                     f"Could not record event: {exc}"
@@ -339,14 +384,7 @@ class ExecutionRecorder:
             trace_path = self._trace_path(row["execution_id"])
 
             try:
-                existing_event_ids = set()
-
-                if trace_path.exists():
-                    with trace_path.open("r", encoding="utf-8") as file:
-                        for line in file:
-                            if line.strip():
-                                saved_event = json.loads(line)
-                                existing_event_ids.add(saved_event["event_id"])
+                existing_event_ids = self._read_existing_event_ids(trace_path)
 
                 if row["event_id"] not in existing_event_ids:
                     with trace_path.open("a", encoding="utf-8") as file:
@@ -391,7 +429,7 @@ class ExecutionRecorder:
 
         if isinstance(value, dict):
             return {
-                key:(
+                key: (
                     "***REDACTED***"
                     if secret_pattern.search(str(key))
                     else ExecutionRecorder._sanitize(item)
@@ -417,6 +455,7 @@ class ExecutionRecorder:
     def __enter__(self) -> Self:
         return self
 
-
     def __exit__(self, exc_type, exc_val, traceback) -> None:
         self.close()
+
+

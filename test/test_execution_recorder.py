@@ -279,3 +279,125 @@ def test_start_execution_is_atomic(tmp_path):
     assert events == 0
 
     recorder.close()
+
+def test_record_event_rejects_unknown_execution(recorder):
+    with pytest.raises(ExecutionRecorderError):
+        recorder.record_event(
+            "00000000-0000-0000-0000-000000000000",
+            "TEST_EVENT",
+        )
+
+def test_recovery_repairs_incomplete_last_trace_line(
+    tmp_path,
+    monkeypatch,
+):
+    database = tmp_path / "agent.db"
+    traces = tmp_path / "traces"
+
+    recorder = ExecutionRecorder(database, traces)
+    execution_id = recorder.start_execution()
+
+    trace_path = traces / f"{execution_id}.jsonl"
+
+    # Имитируем сбой записи трассы после сохранения события в SQLite.
+    def simulate_crash():
+        raise OSError("Simulated crash")
+
+    monkeypatch.setattr(
+        recorder,
+        "_write_pending_traces",
+        simulate_crash,
+    )
+
+    with pytest.raises(OSError, match="Simulated crash"):
+        recorder.record_event(execution_id, "TEST_EVENT")
+
+    # Проверяем, что событие сохранилось в SQLite,
+    # но ещё не записано в JSONL.
+    pending = recorder._connection.execute(
+        """
+        SELECT trace_written
+        FROM execution_events
+        WHERE event_type = 'TEST_EVENT'
+        """
+    ).fetchone()
+
+    assert pending["trace_written"] == 0
+
+    # Имитируем обрыв записи последней строки JSONL.
+    with trace_path.open("a", encoding="utf-8") as file:
+        file.write('{"event_id": "incomplete')
+
+    recorder._connection.close()
+
+    # Перезапуск агента должен восстановить трассу.
+    recovered = ExecutionRecorder(database, traces)
+
+    events = recovered.get_events(execution_id)
+    trace_events = [
+        json.loads(line)
+        for line in trace_path.read_text(encoding="utf-8").splitlines()
+    ]
+
+    assert len(events) == 2
+    assert len(trace_events) == 2
+    assert {event["event_id"] for event in trace_events} == {
+        event.event_id for event in events
+    }
+
+    recovered.close()
+
+def test_recovery_rejects_corrupted_middle_trace_line(tmp_path):
+    database = tmp_path / "agent.db"
+    traces = tmp_path / "traces"
+
+    recorder = ExecutionRecorder(database, traces)
+    execution_id = recorder.start_execution()
+
+    trace_path = traces / f"{execution_id}.jsonl"
+
+    recorder.record_event(execution_id, "EVENT_1")
+    recorder.record_event(execution_id, "EVENT_2")
+    recorder.close()
+
+    # Помечаем последнее событие как ожидающее записи в JSONL.
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            """
+            UPDATE execution_events
+            SET trace_written = 0
+            WHERE event_type = 'EVENT_2'
+            """
+        )
+
+    # Повреждаем вторую строку.
+    lines = trace_path.read_text(encoding="utf-8").splitlines()
+    lines[1] = '{"event_id": "broken"} invalid'
+
+    trace_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    with pytest.raises(ExecutionRecorderError):
+        ExecutionRecorder(database, traces)й
+def test_recovery_handles_valid_json_without_trailing_newline(tmp_path):
+    database = tmp_path / "agent.db"
+    traces = tmp_path / "traces"
+
+    recorder = ExecutionRecorder(database, traces)
+    execution_id = recorder.start_execution()
+
+    trace_path = traces / f"{execution_id}.jsonl"
+
+    recorder.close()
+
+    content = trace_path.read_text(encoding="utf-8").rstrip("\n")
+    trace_path.write_text(content, encoding="utf-8")
+
+    recovered = ExecutionRecorder(database, traces)
+    recovered.record_event(execution_id, "NEXT_EVENT")
+
+    lines = trace_path.read_text(encoding="utf-8").splitlines()
+
+    assert len(lines) == 2
+    assert all(isinstance(json.loads(line), dict) for line in lines)
+
+    recovered.close()
