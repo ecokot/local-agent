@@ -34,6 +34,7 @@ htmlcov/
 logs/
 traces/
 workspace/
+/data/
 
 # OS
 .DS_Store
