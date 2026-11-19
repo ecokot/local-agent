@@ -362,7 +362,7 @@ git diff --check
 ## Этап 4. Контракты моделей и протоколы агентов
 
 **Статус:**
-`[ ] Не начато — базовые модели и протоколы уже существуют, требуется аудит`
+- [x] Принят
 
 **Цель:** сделать взаимодействие Python и моделей предсказуемым и
 валидируемым.
@@ -764,7 +764,7 @@ CLI.
 ### Команда
 
 ```powershell
-$stage = "Этап 3"
+$stage = "Этап 4"
 $root = (Get-Location).Path
 $commit = git rev-parse --short HEAD
 
@@ -837,3 +837,4 @@ Write-Host "Снимок структуры проекта создан: $output
 | 19.11.2026 | Этап 1 — Ревизия ExecutionRecorder | Принят | Проверены атомарность SQLite, согласованность event_id, восстановление JSONL, защита от дубликатов, глубокое копирование данных и обработка повреждённых JSON/UTF-8. Pytest: 123 passed. Ruff: All checks passed. git diff --check: без ошибок. Коммит реализации: b2b0082. Изменения контрольного плана и PROJECT_STRUCTURE.txt отправлены в origin/main. Ограничения: отдельно не подтверждены UTC-время, round-trip сериализация ExecutionEvent и прямые проверки trace_written. |
 | 19.11.2026 | Этап 2 — Ревизия StateManager и устойчивости SQLite | Принят | Исправлен transition(): отдельная транзакция BEGIN IMMEDIATE, атомарная проверка и смена статуса, rollback при ошибке. Сохранён интерфейс transition_in_transaction(). Проверены терминальные состояния, неизвестные ID, защита внешних транзакций, восстановление задач и подтверждений после перезапуска, владение SQLite-соединениями. Ruff: успешно. Pytest: 130 passed. Связанные компоненты: 42 passed. StateManager: 25 passed. git diff --check: успешно. Коммит: c6814c0. Push выполнен, рабочая директория чистая. |
 | 19.11.2026 | Этап 3 — Единая модель задачи и выполнения | Принят | Проведена ревизия RecoveryManager и его взаимодействия с StateManager, ExecutionRecorder и ApprovalManager. Реализована проверка полной истории Execution одной Task: последовательности попыток, стартовых и завершающих событий, статусов и неизвестных типов событий. Сохранено правило: FAILED Execution не означает FAILED Task; повторные попытки допускаются. Противоречия в истории приводят к RecoveryError. Незавершённый Execution после перезапуска автоматически не повторяется. Pytest: 133 passed; RecoveryManager: 16 passed. Ruff: All checks passed. git diff --check: успешно. Коммит: 03c7acd. Push выполнен, рабочая директория чистая. Интеграция ExecutionRecorder в Orchestrator отложена до отдельной ревизии Orchestrator. |
+| 19.11.2026 | Этап 4 — Контракты моделей и протоколы агентов | Принят	Усилены контракты ExecutionResult, ReviewResult, PlanStep и Plan с помощью strict-типизации и запрета дополнительных полей. Добавлена проверка обязательного feedback при отклонении. Созданы и расширены тесты моделей, включая JSON round-trip Plan. FakePlanner приведён в соответствие с протоколом Planner, проверен revise_plan(). Pytest: 156 passed. Ruff: All checks passed. git diff --check: ошибок нет. Коммит: 6d81d65. Push выполнен в origin/main, рабочая копия чистая.|

@@ -1,6 +1,6 @@
-﻿ЭТАП: Этап 3
-КОММИТ: 03c7acd
-ДАТА: 2026-11-19 22:17:44
+﻿ЭТАП: Этап 4
+КОММИТ: 6d81d65
+ДАТА: 2026-11-19 22:48:18
 
 СТРУКТУРА ПРОЕКТА
 local-agent
@@ -42,6 +42,7 @@ local-agent
 |   +--- test_model_router.py
 |   +--- test_orchestrator.py
 |   +--- test_plan_approval.py
+|   +--- test_plan_models.py
 |   +--- test_recovery_manager.py
 |   \--- test_state_manager.py
 +--- .gitignore
