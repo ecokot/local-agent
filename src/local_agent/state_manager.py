@@ -60,7 +60,6 @@ class StateManager:
         self.connection.row_factory = sqlite3.Row
         self._create_tables()
 
-
     def _create_tables(self) -> None:
         self.connection.execute(
             """
@@ -108,24 +107,49 @@ class StateManager:
             task_id: str,
             new_status: TaskStatus,
     ) -> None:
-        current_status = self.get_state(task_id)
-
-        allowed = self.ALLOWED_TRANSITIONS.get(current_status, set())
-
-        if new_status not in allowed:
-            raise ValueError(
-                f"Invalid transition: {current_status} -> {new_status}"
+        if self.connection.in_transaction:
+            raise RuntimeError(
+                "Cannot transition while a transaction is active"
             )
 
-        self.connection.execute(
-            """
-            UPDATE tasks
-            SET status = ?
-            WHERE task_id = ?
-            """,
-            (new_status.value, task_id)
-        )
-        self.connection.commit()
+        try:
+            self.connection.execute("BEGIN IMMEDIATE")
+
+            row = self.connection.execute(
+                """
+                SELECT status
+                FROM tasks
+                WHERE task_id = ?
+                """,
+                (task_id,),
+            ).fetchone()
+
+            if row is None:
+                raise ValueError(f"Unknown task: {task_id}")
+
+            current_status = TaskStatus(row["status"])
+            allowed = self.ALLOWED_TRANSITIONS.get(current_status, set())
+
+            if new_status not in allowed:
+                raise ValueError(
+                    f"Invalid transition: {current_status} -> {new_status}"
+                )
+
+            self.connection.execute(
+                """
+                UPDATE tasks
+                SET status = ?
+                WHERE task_id = ?
+                """,
+                (new_status.value, task_id),
+            )
+
+            self.connection.commit()
+
+        except Exception:
+            if self.connection.in_transaction:
+                self.connection.rollback()
+            raise
 
     def transition_in_transaction(
             self,

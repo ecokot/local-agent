@@ -112,6 +112,7 @@ def test_unknown_task_is_rejected(tmp_path):
     with pytest.raises(ValueError, match="Unknown task"):
         manager.get_state("unknown")
 
+
 def test_context_manager_closes_connection(tmp_path):
     db_path = tmp_path / "agent.db"
 
@@ -136,7 +137,6 @@ def test_context_manager_closes_connection_after_exception(tmp_path):
         connection.execute("SELECT 1")
 
 
-
 def test_transition_in_transaction_changes_status(tmp_path):
     with StateManager(tmp_path / "test.db") as manager:
         task_id = manager.create_task("Test task")
@@ -151,25 +151,6 @@ def test_transition_in_transaction_changes_status(tmp_path):
         assert manager.get_state(task_id) == TaskStatus.WAITING_FOR_APPROVAL
 
 
-def test_transition_in_transaction_does_not_commit(tmp_path):
-    with StateManager(tmp_path / "test.db") as manager:
-        task_id = manager.create_task("Test task")
-        manager.transition(task_id, TaskStatus.RUNNING)
-
-        manager.connection.execute("BEGIN")
-
-        manager.transition_in_transaction(
-            task_id,
-            TaskStatus.WAITING_FOR_APPROVAL,
-        )
-
-        assert manager.connection.in_transaction
-
-        manager.connection.rollback()
-
-        assert manager.get_state(task_id) == TaskStatus.RUNNING
-
-
 def test_transition_in_transaction_rejects_invalid_transition(tmp_path):
     with StateManager(tmp_path / "test.db") as manager:
         task_id = manager.create_task("Test task")
@@ -179,6 +160,7 @@ def test_transition_in_transaction_rejects_invalid_transition(tmp_path):
                 task_id,
                 TaskStatus.SUCCEEDED,
             )
+
 
 def test_close_does_not_close_external_connection():
     connection = sqlite3.connect(":memory:")
@@ -191,6 +173,7 @@ def test_close_does_not_close_external_connection():
 
     connection.close()
 
+
 def test_close_closes_owned_connection(tmp_path):
     manager = StateManager(tmp_path / "test.db")
     connection = manager.connection
@@ -199,3 +182,91 @@ def test_close_closes_owned_connection(tmp_path):
 
     with pytest.raises(sqlite3.ProgrammingError):
         connection.execute("SELECT 1")
+
+
+def test_transition_rejects_unknown_task(tmp_path):
+    with (
+        StateManager(tmp_path / "agent.db") as manager,
+        pytest.raises(ValueError, match="Unknown task"),
+    ):
+        manager.transition("unknown", TaskStatus.RUNNING)
+
+
+@pytest.mark.parametrize(
+    "terminal_status",
+    [
+        TaskStatus.SUCCEEDED,
+        TaskStatus.FAILED,
+        TaskStatus.CANCELLED,
+    ],
+)
+def test_all_terminal_states_are_immutable(tmp_path, terminal_status):
+    with StateManager(tmp_path / "agent.db") as manager:
+        task_id = manager.create_task("Test task")
+        manager.transition(task_id, TaskStatus.RUNNING)
+        manager.transition(task_id, terminal_status)
+
+        with pytest.raises(ValueError, match="Invalid transition"):
+            manager.transition(task_id, TaskStatus.RUNNING)
+
+
+def test_transition_does_not_commit_existing_transaction(tmp_path):
+    with StateManager(tmp_path / "agent.db") as manager:
+        task_id = manager.create_task("Test task")
+
+        manager.connection.execute("BEGIN")
+        manager.transition_in_transaction(
+            task_id,
+            TaskStatus.RUNNING,
+        )
+        manager.connection.commit()
+
+        manager.connection.execute("BEGIN")
+        manager.transition_in_transaction(
+            task_id,
+            TaskStatus.WAITING_FOR_APPROVAL,
+        )
+
+        assert manager.connection.in_transaction
+
+        manager.connection.rollback()
+
+        assert manager.get_state(task_id) == TaskStatus.RUNNING
+
+
+def test_transition_rolls_back_after_database_error(tmp_path):
+    with StateManager(tmp_path / "agent.db") as manager:
+        task_id = manager.create_task("Test task")
+
+        manager.connection.execute(
+            """
+            CREATE TRIGGER reject_task_update
+            BEFORE UPDATE ON tasks
+            BEGIN
+                SELECT RAISE(ABORT, 'Forced database error');
+            END;
+            """
+        )
+        manager.connection.commit()
+
+        with pytest.raises(sqlite3.IntegrityError):
+            manager.transition(task_id, TaskStatus.RUNNING)
+
+        assert not manager.connection.in_transaction
+        assert manager.get_state(task_id) == TaskStatus.CREATED
+
+
+def test_transition_rejects_active_transaction(tmp_path):
+    with StateManager(tmp_path / "agent.db") as manager:
+        task_id = manager.create_task("Test task")
+
+        manager.connection.execute("BEGIN")
+
+        with pytest.raises(RuntimeError, match="transaction is active"):
+            manager.transition(task_id, TaskStatus.RUNNING)
+
+        assert manager.connection.in_transaction
+
+        manager.connection.rollback()
+
+        assert manager.get_state(task_id) == TaskStatus.CREATED
