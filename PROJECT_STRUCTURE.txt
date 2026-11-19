@@ -1,0 +1,58 @@
+﻿ЭТАП: Этап 0
+КОММИТ: 869bc16
+ДАТА: 2026-11-19 13:49:45
+
+СТРУКТУРА ПРОЕКТА
+local-agent
++--- data
+|   +--- traces
+|   |   \--- f77ae6fd-9826-4a9d-a2cc-7db6cc8c1468.jsonl
+|   \--- agent.db
++--- src
+|   +--- local_agent
+|   |   +--- agents
+|   |   |   +--- protocols.py
+|   |   |   \--- stubs.py
+|   |   +--- execution
+|   |   |   +--- __init__.py
+|   |   |   +--- models.py
+|   |   |   \--- recorder.py
+|   |   +--- models
+|   |   |   +--- __init__.py
+|   |   |   +--- agent.py
+|   |   |   +--- approval.py
+|   |   |   +--- execution.py
+|   |   |   +--- plan.py
+|   |   |   \--- task.py
+|   |   +--- __init__.py
+|   |   +--- approval_manager.py
+|   |   +--- context_manager.py
+|   |   +--- model_client.py
+|   |   +--- model_router.py
+|   |   +--- orchestrator.py
+|   |   +--- recovery_manager.py
+|   |   +--- state_manager.py
+|   |   \--- user_interface.py
+|   \--- __init__.py
++--- test
+|   +--- test_agent_models.py
+|   +--- test_agent_protocols.py
+|   +--- test_agent_stubs.py
+|   +--- test_approval_manager.py
+|   +--- test_approval_model.py
+|   +--- test_context_manager.py
+|   +--- test_execution_recorder.py
+|   +--- test_model_client.py
+|   +--- test_model_router.py
+|   +--- test_orchestrator.py
+|   +--- test_plan_approval.py
+|   +--- test_recovery_manager.py
+|   \--- test_state_manager.py
++--- .gitignore
++--- .python-version
++--- check_model.py
++--- plan.MD
++--- PROJECT_STRUCTURE.txt
++--- pyproject.toml
++--- README.md
+\--- uv.lock

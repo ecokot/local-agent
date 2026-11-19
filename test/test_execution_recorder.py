@@ -1,4 +1,3 @@
-
 import json
 import sqlite3
 
@@ -185,9 +184,9 @@ def test_unknown_execution_is_rejected(recorder):
 
 
 def test_trace_is_recovered_after_write_failure(
-    tmp_path,
-    monkeypatch,
-    task_id,
+        tmp_path,
+        monkeypatch,
+        task_id,
 ):
     database = tmp_path / "agent.db"
     traces = tmp_path / "traces"
@@ -237,9 +236,9 @@ def test_trace_is_recovered_after_write_failure(
 
 
 def test_recovery_does_not_duplicate_trace_events(
-    recorder,
-    tmp_path,
-    task_id,
+        recorder,
+        tmp_path,
+        task_id,
 ):
     execution_id = recorder.start_execution(task_id)
 
@@ -310,9 +309,9 @@ def test_record_event_rejects_unknown_execution(recorder):
 
 
 def test_recovery_repairs_incomplete_last_trace_line(
-    tmp_path,
-    monkeypatch,
-    task_id,
+        tmp_path,
+        monkeypatch,
+        task_id,
 ):
     database = tmp_path / "agent.db"
     traces = tmp_path / "traces"
@@ -367,8 +366,8 @@ def test_recovery_repairs_incomplete_last_trace_line(
 
 
 def test_recovery_rejects_corrupted_middle_trace_line(
-    tmp_path,
-    task_id,
+        tmp_path,
+        task_id,
 ):
     database = tmp_path / "agent.db"
     traces = tmp_path / "traces"
@@ -401,8 +400,8 @@ def test_recovery_rejects_corrupted_middle_trace_line(
 
 
 def test_recovery_handles_valid_json_without_trailing_newline(
-    tmp_path,
-    task_id,
+        tmp_path,
+        task_id,
 ):
     database = tmp_path / "agent.db"
     traces = tmp_path / "traces"
@@ -444,8 +443,8 @@ def test_execution_is_linked_to_task(recorder, task_id):
 
 
 def test_multiple_executions_can_belong_to_one_task(
-    recorder,
-    task_id,
+        recorder,
+        task_id,
 ):
     first = recorder.start_execution(task_id)
     second = recorder.start_execution(task_id)
@@ -531,6 +530,7 @@ def test_old_database_is_migrated(tmp_path, task_id):
     finally:
         recorder.close()
 
+
 def test_execution_event_deep_copies_data():
     data = {
         "request": {
@@ -552,3 +552,162 @@ def test_execution_event_deep_copies_data():
             "headers": ["Authorization"],
         }
     }
+
+
+def test_execution_event_to_dict_deep_copies_data() -> None:
+    event = ExecutionEvent.create(
+        "execution-1",
+        "TEST",
+        {"nested": {"value": 10}},
+    )
+
+    result = event.to_dict()
+    result["data"]["nested"]["value"] = 999
+
+    assert event.data["nested"]["value"] == 10
+
+
+def test_execution_event_from_dict_deep_copies_data() -> None:
+    source = {
+        "event_id": "event-1",
+        "execution_id": "execution-1",
+        "event_type": "TEST",
+        "timestamp": "2026-11-19T10:00:00+00:00",
+        "data": {"nested": {"value": 10}},
+    }
+
+    event = ExecutionEvent.from_dict(source)
+    source["data"]["nested"]["value"] = 999
+
+    assert event.data["nested"]["value"] == 10
+
+
+def test_record_event_is_atomic(tmp_path, task_id):
+    database = tmp_path / "agent.db"
+    traces = tmp_path / "traces"
+
+    recorder = ExecutionRecorder(database, traces)
+    execution_id = recorder.start_execution(task_id)
+
+    recorder.close()
+
+    recorder._connection = sqlite3.connect(
+        database,
+        factory=FailingConnection,
+        check_same_thread=False,
+    )
+    recorder._connection.row_factory = sqlite3.Row
+    recorder._connection.execute("PRAGMA foreign_keys = ON")
+
+    with pytest.raises(ExecutionRecorderError):
+        recorder.record_event(execution_id, "TEST_EVENT")
+
+    events = recorder.get_events(execution_id)
+
+    assert len(events) == 1
+    assert events[0].event_type == "EXECUTION_STARTED"
+
+    recorder.close()
+
+
+class FailingUpdateConnection(sqlite3.Connection):
+    def execute(self, sql, parameters=()):
+        if "UPDATE executions" in sql:
+            raise sqlite3.OperationalError(
+                "Simulated update failure"
+            )
+
+        return super().execute(sql, parameters)
+
+
+def test_finish_execution_is_atomic(tmp_path, task_id):
+    database = tmp_path / "agent.db"
+    traces = tmp_path / "traces"
+
+    recorder = ExecutionRecorder(database, traces)
+    execution_id = recorder.start_execution(task_id)
+    recorder.close()
+
+    recorder._connection = sqlite3.connect(
+        database,
+        factory=FailingUpdateConnection,
+        check_same_thread=False,
+    )
+    recorder._connection.row_factory = sqlite3.Row
+    recorder._connection.execute("PRAGMA foreign_keys = ON")
+
+    with pytest.raises(ExecutionRecorderError):
+        recorder.finish_execution(execution_id)
+
+    assert recorder.get_status(execution_id) == "RUNNING"
+
+    events = recorder.get_events(execution_id)
+    assert len(events) == 1
+    assert events[0].event_type == "EXECUTION_STARTED"
+
+    recorder.close()
+
+
+@pytest.mark.parametrize(
+    "invalid_line",
+    [
+        "[]",
+        '"text"',
+        '{"type": "TEST_EVENT"}',
+    ],
+)
+def test_invalid_trace_event_is_rejected(
+        tmp_path,
+        task_id,
+        invalid_line,
+):
+    database = tmp_path / "agent.db"
+    traces = tmp_path / "traces"
+
+    recorder = ExecutionRecorder(database, traces)
+    execution_id = recorder.start_execution(task_id)
+    recorder.close()
+
+    connection = sqlite3.connect(database)
+    connection.execute(
+        """
+        UPDATE execution_events
+        SET trace_written = 0
+        """
+    )
+    connection.commit()
+    connection.close()
+
+    trace_path = traces / f"{execution_id}.jsonl"
+    trace_path.write_text(invalid_line + "\n", encoding="utf-8")
+
+    with pytest.raises(ExecutionRecorderError):
+        ExecutionRecorder(database, traces)
+
+
+def test_invalid_utf8_trace_is_rejected(
+        tmp_path,
+        task_id,
+):
+    database = tmp_path / "agent.db"
+    traces = tmp_path / "traces"
+
+    recorder = ExecutionRecorder(database, traces)
+    execution_id = recorder.start_execution(task_id)
+    recorder.close()
+
+    connection = sqlite3.connect(database)
+    connection.execute(
+        """
+        UPDATE execution_events
+        SET trace_written = 0
+        """
+    )
+    connection.commit()
+    connection.close()
+
+    trace_path = traces / f"{execution_id}.jsonl"
+    trace_path.write_bytes(b"\xff\xfe\n")
+
+    with pytest.raises(ExecutionRecorderError):
+        ExecutionRecorder(database, traces)

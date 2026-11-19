@@ -51,7 +51,7 @@ class ExecutionEvent:
             "execution_id": self.execution_id,
             "event_type": self.event_type,
             "timestamp": self.timestamp,
-            "data": self.data,
+            "data": deepcopy(self.data),
         }
 
     @classmethod
@@ -61,5 +61,5 @@ class ExecutionEvent:
             execution_id=value["execution_id"],
             event_type=value["event_type"],
             timestamp=value["timestamp"],
-            data=value["data"],
+            data=deepcopy(value["data"]),
         )

@@ -120,7 +120,19 @@ class ExecutionRecorder:
                     f"Corrupted trace file: {trace_path}"
                 ) from exc
 
-            existing_event_ids.add(saved_event["event_id"])
+            if not isinstance(saved_event, dict):
+                raise ExecutionRecorderError(
+                    f"Invalid event format in trace file: {trace_path}"
+                )
+
+            event_id = saved_event.get("event_id")
+
+            if not isinstance(event_id, str) or not event_id:
+                raise ExecutionRecorderError(
+                    f"Invalid event_id in trace file: {trace_path}"
+                )
+
+            existing_event_ids.add(event_id)
 
             if is_last_line and not line_is_complete:
                 with trace_path.open("ab") as file:
