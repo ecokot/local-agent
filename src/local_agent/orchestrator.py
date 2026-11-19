@@ -2,7 +2,7 @@ from local_agent.agents.protocols import Executor, Planner, Reviewer
 from local_agent.approval_manager import ApprovalManager
 from local_agent.models.approval import Approval, ApprovalStatus
 from local_agent.models.plan import Plan
-from local_agent.state_manager import StateManager
+from local_agent.state_manager import StateManager, TaskStatus
 
 
 class Orchestrator:
@@ -33,7 +33,8 @@ class Orchestrator:
                 "plan": plan.model_dump(mode="json"),
             },
         )
-    def execute_approved_plan(self, approval_id: str) -> None:
+
+    def execute_approved_plan(self, approval_id: str):
         approval = self.approval_manager.get_approval(approval_id)
 
         if approval.action_type != "PLAN_APPROVAL":
@@ -41,3 +42,28 @@ class Orchestrator:
 
         if approval.status != ApprovalStatus.APPROVED:
             raise ValueError("Plan has not been approved")
+
+        plan = Plan.model_validate(approval.parameters["plan"])
+
+        try:
+            result = self.executor.execute(plan)
+            review = self.reviewer.review(plan, result)
+        except Exception:
+            self.state_manager.transition(
+                approval.task_id,
+                TaskStatus.FAILED,
+            )
+            raise
+
+        if review.approved:
+            self.state_manager.transition(
+                approval.task_id,
+                TaskStatus.SUCCEEDED,
+            )
+        else:
+            self.state_manager.transition(
+                approval.task_id,
+                TaskStatus.FAILED,
+            )
+
+        return review
