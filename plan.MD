@@ -840,3 +840,4 @@ Write-Host "Снимок структуры проекта создан: $output
   Дата   Этап   Результат   Тесты   Ruff   Commit
 
 | 19.11.2026 | Этап 0 — зафиксировать исходное состояние | Принят | Проверена ветка main, синхронизация с origin/main, структура проекта и состояние Git. Ruff: All checks passed. Pytest: 115 passed. Python 3.12.10. Проверка git diff --cached --check пройдена. Контрольный документ добавлен в GitHub. Коммит: 7e3b9b4. Рабочая копия чистая. |
+| 19.11.2026 | Этап 1 — Ревизия ExecutionRecorder | Принят | Проверены атомарность SQLite, согласованность event_id, восстановление JSONL, защита от дубликатов, глубокое копирование данных и обработка повреждённых JSON/UTF-8. Pytest: 123 passed. Ruff: All checks passed. git diff --check: без ошибок. Коммит реализации: b2b0082. Изменения контрольного плана и PROJECT_STRUCTURE.txt отправлены в origin/main. Ограничения: отдельно не подтверждены UTC-время, round-trip сериализация ExecutionEvent и прямые проверки trace_written. |
