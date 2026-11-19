@@ -27,11 +27,23 @@ def test_execution_result_rejects_extra_fields() -> None:
         ExecutionResult(success=True, unknown="value")
 
 
+@pytest.mark.parametrize("value", ["true", 1])
+def test_execution_result_rejects_non_boolean_success(value: object) -> None:
+    with pytest.raises(ValidationError):
+        ExecutionResult(success=value)
+
+
 def test_review_result_approved() -> None:
     result = ReviewResult(approved=True, feedback="Looks good")
 
     assert result.approved is True
     assert result.feedback == "Looks good"
+
+
+def test_review_result_approved_allows_empty_feedback() -> None:
+    result = ReviewResult(approved=True)
+
+    assert result.feedback == ""
 
 
 def test_review_result_rejected() -> None:
@@ -44,6 +56,18 @@ def test_review_result_rejected() -> None:
     assert result.feedback == "Missing error handling"
 
 
+@pytest.mark.parametrize("feedback", ["", " ", "   \t\n"])
+def test_review_result_rejects_empty_feedback(feedback: str) -> None:
+    with pytest.raises(ValidationError):
+        ReviewResult(approved=False, feedback=feedback)
+
+
 def test_review_result_rejects_extra_fields() -> None:
     with pytest.raises(ValidationError):
         ReviewResult(approved=True, unknown="value")
+
+
+@pytest.mark.parametrize("value", ["true", 1])
+def test_review_result_rejects_non_boolean_approved(value: object) -> None:
+    with pytest.raises(ValidationError):
+        ReviewResult(approved=value)

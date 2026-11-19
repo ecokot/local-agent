@@ -17,6 +17,17 @@ class FakePlanner:
             ],
         )
 
+    def revise_plan(
+        self,
+        task: Task,
+        previous_plan: Plan,
+        feedback: str,
+    ) -> Plan:
+        return Plan(
+            summary=f"Revised plan for: {task.description}",
+            steps=previous_plan.steps,
+        )
+
 
 class FakeExecutor:
     def execute(self, plan: Plan) -> ExecutionResult:
@@ -76,3 +87,22 @@ def test_fake_reviewer_matches_protocol() -> None:
     result = reviewer.review(plan, ExecutionResult(success=True))
 
     assert result.approved is True
+
+
+def test_fake_planner_can_revise_plan() -> None:
+    planner: Planner = FakePlanner()
+    task = Task(
+        task_id="test-task",
+        description="Test",
+        status="CREATED",
+    )
+    original_plan = planner.create_plan(task)
+
+    revised_plan = planner.revise_plan(
+        task,
+        original_plan,
+        "Add error handling",
+    )
+
+    assert revised_plan.summary == "Revised plan for: Test"
+    assert revised_plan.steps == original_plan.steps
