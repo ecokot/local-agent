@@ -12,20 +12,93 @@ class RecoveryError(Exception):
 
 
 class RecoveryManager:
-    TERMINAL_EVENTS: ClassVar[dict[str, str]] = {
-        "SUCCEEDED": ExecutionEventType.EXECUTION_FINISHED,
-        "FAILED": ExecutionEventType.EXECUTION_FAILED,
+    TERMINAL_EVENTS: ClassVar[dict[ExecutionStatus, str]] = {
+        ExecutionStatus.SUCCEEDED: ExecutionEventType.EXECUTION_FINISHED,
+        ExecutionStatus.FAILED: ExecutionEventType.EXECUTION_FAILED,
     }
 
     def __init__(
-            self,
-            state_manager: StateManager,
-            execution_recorder: ExecutionRecorder,
-            approval_manager: ApprovalManager,
+        self,
+        state_manager: StateManager,
+        execution_recorder: ExecutionRecorder,
+        approval_manager: ApprovalManager,
     ) -> None:
         self.state_manager = state_manager
         self.execution_recorder = execution_recorder
         self.approval_manager = approval_manager
+
+    def _validate_execution(self, execution, is_latest: bool) -> None:
+        execution_id = execution.execution_id
+        status = execution.status
+
+        events = self.execution_recorder.get_events(execution_id)
+
+        allowed_events = {
+            ExecutionEventType.EXECUTION_STARTED,
+            ExecutionEventType.EXECUTION_FINISHED,
+            ExecutionEventType.EXECUTION_FAILED,
+        }
+
+        if any(event.event_type not in allowed_events for event in events):
+            raise RecoveryError(
+                f"Unknown event type in execution {execution_id}"
+            )
+
+        if not events:
+            raise RecoveryError(
+                f"Execution {execution_id} has no events"
+            )
+
+        start_events = [
+            event
+            for event in events
+            if event.event_type == ExecutionEventType.EXECUTION_STARTED
+        ]
+
+        terminal_events = [
+            event.event_type
+            for event in events
+            if event.event_type in (
+                ExecutionEventType.EXECUTION_FINISHED,
+                ExecutionEventType.EXECUTION_FAILED,
+            )
+        ]
+
+        if (
+            len(start_events) != 1
+            or events[0].event_type != ExecutionEventType.EXECUTION_STARTED
+        ):
+            raise RecoveryError(
+                f"Invalid start event history for execution {execution_id}"
+            )
+
+        if status == ExecutionStatus.RUNNING:
+            if terminal_events or not is_latest:
+                raise RecoveryError(
+                    f"Inconsistent RUNNING execution {execution_id}"
+                )
+            return
+
+        expected_event = self.TERMINAL_EVENTS.get(status)
+
+        if expected_event is None:
+            raise RecoveryError(
+                f"Unknown execution status: {status}"
+            )
+
+        if (
+            len(terminal_events) != 1
+            or events[-1].event_type != expected_event
+        ):
+            raise RecoveryError(
+                f"Inconsistent history for execution {execution_id}"
+            )
+
+        if not is_latest and status != ExecutionStatus.FAILED:
+            raise RecoveryError(
+                f"Execution {execution_id} is not FAILED "
+                "but a subsequent execution exists"
+            )
 
     def recover(self) -> None:
         tasks = self.state_manager.get_tasks()
@@ -62,52 +135,28 @@ class RecoveryManager:
                 self.execution_recorder.get_executions_for_task(task_id)
             )
 
+            # Execution может отсутствовать, пока Orchestrator
+            # ещё не интегрирован с ExecutionRecorder.
             if not executions:
                 continue
 
-            latest_execution = executions[-1]
-            execution_id = latest_execution.execution_id
-            execution_status = latest_execution.status
-
-            events = self.execution_recorder.get_events(execution_id)
-
-            terminal_events = [
-                event.event_type
-                for event in events
-                if event.event_type in (
-                    ExecutionEventType.EXECUTION_FINISHED,
-                    ExecutionEventType.EXECUTION_FAILED,
+            for index, execution in enumerate(executions):
+                self._validate_execution(
+                    execution,
+                    is_latest=index == len(executions) - 1,
                 )
-            ]
 
-            if execution_status == ExecutionStatus.RUNNING:
-                if terminal_events:
-                    raise RecoveryError(
-                        f"Execution {execution_id} is RUNNING "
-                        "but has a terminal event"
-                    )
+            latest_execution = executions[-1]
+
+            # Неудачная попытка не означает провал всей задачи.
+            if latest_execution.status != ExecutionStatus.SUCCEEDED:
                 continue
 
-            expected_event = self.TERMINAL_EVENTS.get(execution_status)
-
-            if expected_event is None:
-                raise RecoveryError(
-                    f"Unknown execution status: {execution_status}"
-                )
-
-            if (
-                len(terminal_events) != 1
-                or not events
-                or events[-1].event_type != expected_event
-            ):
-                raise RecoveryError(
-                    f"Inconsistent history for execution {execution_id}"
-                )
-
-            new_status = TaskStatus(execution_status)
-
             try:
-                self.state_manager.transition(task_id, new_status)
+                self.state_manager.transition(
+                    task_id,
+                    TaskStatus.SUCCEEDED,
+                )
             except ValueError as exc:
                 raise RecoveryError(
                     f"Could not recover task {task_id}: {exc}"

@@ -64,7 +64,7 @@ def test_recovers_successful_execution(
     assert state_manager.get_state(running_task) == TaskStatus.SUCCEEDED
 
 
-def test_recovers_failed_execution(
+def test_failed_execution_does_not_fail_task(
     components,
     running_task,
 ):
@@ -75,7 +75,7 @@ def test_recovers_failed_execution(
 
     recovery.recover()
 
-    assert state_manager.get_state(running_task) == TaskStatus.FAILED
+    assert state_manager.get_state(running_task) == TaskStatus.RUNNING
 
 
 def test_running_execution_is_not_recovered(
@@ -98,7 +98,7 @@ def test_only_latest_execution_is_considered(
     state_manager, recorder, recovery = components
 
     first_execution = recorder.start_execution(running_task)
-    recorder.finish_execution(first_execution)
+    recorder.fail_execution(first_execution, "First attempt failed")
 
     second_execution = recorder.start_execution(running_task)
 
@@ -277,3 +277,85 @@ def test_pending_approval_survives_restart(tmp_path):
         approval_manager.close()
         state_manager.close()
         connection.close()
+
+
+def test_latest_failed_execution_does_not_fail_task(
+    components,
+    running_task,
+):
+    state_manager, recorder, recovery = components
+
+    execution_id = recorder.start_execution(running_task)
+    recorder.fail_execution(execution_id, "Test error")
+
+    recovery.recover()
+
+    assert state_manager.get_state(running_task) == TaskStatus.RUNNING
+
+
+def test_previous_running_execution_is_inconsistent(
+    components,
+    running_task,
+):
+    _, recorder, recovery = components
+
+    recorder.start_execution(running_task)
+    recorder.start_execution(running_task)
+
+    with pytest.raises(RecoveryError):
+        recovery.recover()
+
+
+def test_failed_execution_followed_by_successful_execution(
+    components,
+    running_task,
+):
+    state_manager, recorder, recovery = components
+
+    first = recorder.start_execution(running_task)
+    recorder.fail_execution(first, "First attempt failed")
+
+    second = recorder.start_execution(running_task)
+    recorder.finish_execution(second)
+
+    recovery.recover()
+
+    assert state_manager.get_state(running_task) == TaskStatus.SUCCEEDED
+
+
+def test_recovery_detects_unknown_event_type(
+    components,
+    running_task,
+):
+    _, recorder, recovery = components
+
+    execution_id = recorder.start_execution(running_task)
+
+    recorder._connection.execute(
+        """
+        UPDATE execution_events
+        SET event_type = 'UNKNOWN_EVENT'
+        WHERE execution_id = ?
+          AND event_type = 'EXECUTION_STARTED'
+        """,
+        (execution_id,),
+    )
+    recorder._connection.commit()
+
+    with pytest.raises(RecoveryError, match="Unknown event type"):
+        recovery.recover()
+
+
+def test_previous_successful_execution_is_inconsistent(
+    components,
+    running_task,
+):
+    _, recorder, recovery = components
+
+    first = recorder.start_execution(running_task)
+    recorder.finish_execution(first)
+
+    recorder.start_execution(running_task)
+
+    with pytest.raises(RecoveryError):
+        recovery.recover()
