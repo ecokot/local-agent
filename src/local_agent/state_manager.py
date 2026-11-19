@@ -20,6 +20,7 @@ class StateManager:
     ALLOWED_TRANSITIONS: ClassVar[dict[TaskStatus, set[TaskStatus]]] = {
         TaskStatus.CREATED: {
             TaskStatus.RUNNING,
+            TaskStatus.WAITING_FOR_APPROVAL,
             TaskStatus.CANCELLED,
         },
         TaskStatus.RUNNING: {

@@ -334,10 +334,21 @@ def test_reject_resumes_task(managers):
 
     assert state_manager.get_state(task_id) == TaskStatus.RUNNING
 
-def test_request_approval_rolls_back_if_task_transition_fails(managers):
+def test_request_approval_rolls_back_if_task_transition_fails(
+    managers, monkeypatch
+):
     _, manager, state_manager = managers
 
     task_id = state_manager.create_task("Task in CREATED state")
+
+    def fail_transition(*args, **kwargs):
+        raise ValueError("Invalid transition")
+
+    monkeypatch.setattr(
+        state_manager,
+        "transition_in_transaction",
+        fail_transition,
+    )
 
     with pytest.raises(ValueError, match="Invalid transition"):
         manager.request_approval(
