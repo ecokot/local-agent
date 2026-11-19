@@ -67,3 +67,18 @@ class Orchestrator:
             )
 
         return review
+
+    def reject_plan(self, approval_id: str) -> Approval:
+        approval = self.approval_manager.get_approval(approval_id)
+
+        if approval.action_type != "PLAN_APPROVAL":
+            raise ValueError("Approval is not a plan approval")
+
+        rejected = self.approval_manager.reject(approval_id)
+
+        self.state_manager.transition(
+            approval.task_id,
+            TaskStatus.CANCELLED,
+        )
+
+        return rejected

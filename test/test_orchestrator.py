@@ -36,6 +36,7 @@ class FailingExecutor(StubExecutor):
             errors=["File creation failed"],
         )
 
+
 class RaisingExecutor(StubExecutor):
     def execute(self, plan):
         raise RuntimeError("Executor failed")
@@ -50,8 +51,8 @@ def test_prepare_task_creates_pending_plan_approval(tmp_path) -> None:
     database_path = tmp_path / "agent.db"
 
     with StateManager(database_path) as state_manager, ApprovalManager(
-        connection=state_manager.connection,
-        state_manager=state_manager,
+            connection=state_manager.connection,
+            state_manager=state_manager,
     ) as approval_manager:
         orchestrator = Orchestrator(
             state_manager=state_manager,
@@ -69,16 +70,17 @@ def test_prepare_task_creates_pending_plan_approval(tmp_path) -> None:
             "Plan for: Create a test file"
         )
         assert (
-            state_manager.get_state(approval.task_id)
-            == TaskStatus.WAITING_FOR_APPROVAL
+                state_manager.get_state(approval.task_id)
+                == TaskStatus.WAITING_FOR_APPROVAL
         )
+
 
 def test_task_cannot_execute_without_plan_approval(tmp_path) -> None:
     database_path = tmp_path / "agent.db"
 
     with StateManager(database_path) as state_manager, ApprovalManager(
-        connection=state_manager.connection,
-        state_manager=state_manager,
+            connection=state_manager.connection,
+            state_manager=state_manager,
     ) as approval_manager:
         orchestrator = Orchestrator(
             state_manager=state_manager,
@@ -100,12 +102,14 @@ def test_task_cannot_execute_without_plan_approval(tmp_path) -> None:
         assert state_manager.get_state(approval.task_id) == (
             TaskStatus.WAITING_FOR_APPROVAL
         )
+
+
 def test_approved_plan_is_passed_to_executor_and_reviewer(tmp_path) -> None:
     database_path = tmp_path / "agent.db"
 
     with StateManager(database_path) as state_manager, ApprovalManager(
-        connection=state_manager.connection,
-        state_manager=state_manager,
+            connection=state_manager.connection,
+            state_manager=state_manager,
     ) as approval_manager:
         executor = RecordingExecutor()
         reviewer = RecordingReviewer()
@@ -133,12 +137,13 @@ def test_approved_plan_is_passed_to_executor_and_reviewer(tmp_path) -> None:
         assert reviewer.received_result.success is True
         assert state_manager.get_state(approval.task_id) == TaskStatus.SUCCEEDED
 
+
 def test_reviewer_rejects_failed_execution(tmp_path) -> None:
     database_path = tmp_path / "agent.db"
 
     with StateManager(database_path) as state_manager, ApprovalManager(
-        connection=state_manager.connection,
-        state_manager=state_manager,
+            connection=state_manager.connection,
+            state_manager=state_manager,
     ) as approval_manager:
         orchestrator = Orchestrator(
             state_manager=state_manager,
@@ -157,12 +162,13 @@ def test_reviewer_rejects_failed_execution(tmp_path) -> None:
         assert review.approved is False
         assert state_manager.get_state(approval.task_id) == TaskStatus.FAILED
 
+
 def test_executor_exception_marks_task_failed(tmp_path) -> None:
     database_path = tmp_path / "agent.db"
 
     with StateManager(database_path) as state_manager, ApprovalManager(
-        connection=state_manager.connection,
-        state_manager=state_manager,
+            connection=state_manager.connection,
+            state_manager=state_manager,
     ) as approval_manager:
         orchestrator = Orchestrator(
             state_manager=state_manager,
@@ -180,12 +186,13 @@ def test_executor_exception_marks_task_failed(tmp_path) -> None:
 
         assert state_manager.get_state(approval.task_id) == TaskStatus.FAILED
 
+
 def test_reviewer_exception_marks_task_failed(tmp_path) -> None:
     database_path = tmp_path / "agent.db"
 
     with StateManager(database_path) as state_manager, ApprovalManager(
-        connection=state_manager.connection,
-        state_manager=state_manager,
+            connection=state_manager.connection,
+            state_manager=state_manager,
     ) as approval_manager:
         orchestrator = Orchestrator(
             state_manager=state_manager,
@@ -202,3 +209,25 @@ def test_reviewer_exception_marks_task_failed(tmp_path) -> None:
             orchestrator.execute_approved_plan(approval.approval_id)
 
         assert state_manager.get_state(approval.task_id) == TaskStatus.FAILED
+
+
+def test_rejected_plan_cancels_task(tmp_path) -> None:
+    database_path = tmp_path / "agent.db"
+
+    with StateManager(database_path) as state_manager, ApprovalManager(
+            connection=state_manager.connection,
+            state_manager=state_manager,
+    ) as approval_manager:
+        orchestrator = Orchestrator(
+            state_manager=state_manager,
+            approval_manager=approval_manager,
+            planner=StubPlanner(),
+            executor=StubExecutor(),
+            reviewer=StubReviewer(),
+        )
+        approval = orchestrator.prepare_task("Create a test file")
+
+        rejected = orchestrator.reject_plan(approval.approval_id)
+
+        assert rejected.status == ApprovalStatus.REJECTED
+        assert state_manager.get_state(approval.task_id) == TaskStatus.CANCELLED

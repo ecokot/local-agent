@@ -1,4 +1,3 @@
-
 import hashlib
 import json
 import sqlite3
@@ -63,7 +62,6 @@ class ApprovalManager:
         )
         self.connection.commit()
 
-
     @staticmethod
     def _serialize_parameters(parameters: dict) -> tuple[str, str]:
         if not isinstance(parameters, dict):
@@ -87,7 +85,6 @@ class ApprovalManager:
         ).hexdigest()
 
         return serialized, parameters_hash
-
 
     @staticmethod
     def _row_to_approval(row: sqlite3.Row) -> Approval:
@@ -193,7 +190,6 @@ class ApprovalManager:
 
         return self.get_approval(approval_id)
 
-
     def get_approval(self, approval_id: str) -> Approval:
         row = self.connection.execute(
             "SELECT * FROM approvals WHERE approval_id = ?",
@@ -273,7 +269,6 @@ class ApprovalManager:
                         task_id,
                         TaskStatus.RUNNING,
                     )
-
             self.connection.commit()
 
         except Exception:
@@ -289,10 +284,10 @@ class ApprovalManager:
         return self._decide(approval_id, ApprovalStatus.REJECTED)
 
     def is_approved(
-        self,
-        task_id: str,
-        action_type: str,
-        parameters: dict,
+            self,
+            task_id: str,
+            action_type: str,
+            parameters: dict,
     ) -> bool:
         _, parameters_hash = self._serialize_parameters(parameters)
 
