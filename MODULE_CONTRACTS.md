@@ -2,9 +2,9 @@
 
 > Технический справочник по архитектуре и публичным контрактам local-agent.
 >
-> **Актуальность:** 2026-11-20  
-> **Репозиторий:** https://github.com/ecokot/local-agent  
-> **Ветка инвентаризации:** main  
+> **Актуальность:** 2026-11-20
+> **Репозиторий:** https://github.com/ecokot/local-agent
+> **Ветка инвентаризации:** main
 > **Коммит инвентаризации:** 92c62003d7bf2a4a17e7ebd67711b089e50c2176
 >
 > Документ описывает код именно указанного коммита. Если ветка main изменилась после него, сверяйте затронутые контракты с актуальным исходником.
@@ -72,13 +72,12 @@
 | Файл | Назначение и контракт |
 |---|---|
 | src/local_agent/__init__.py | Маркер пакета. Самостоятельного прикладного API не добавляет. |
-| src/local_agent/agents/__init__.py | Маркер пакета агентов. |
 | src/local_agent/models/__init__.py | Пакет моделей. Сами контракты определены в отдельных файлах models/*.py. |
 | src/local_agent/execution/__init__.py | Пакет подсистемы записи выполнений. |
 
 ### 3.2 StateManager — состояние задач
 
-**Файл:** src/local_agent/state_manager.py  
+**Файл:** src/local_agent/state_manager.py
 **Тесты:** test/test_state_manager.py
 
 Назначение: единственный компонент текущей реализации, отвечающий за создание задач, чтение состояния и контролируемые переходы между статусами.
@@ -135,8 +134,8 @@
 
 ### 3.3 ApprovalManager — запросы и решения о подтверждении
 
-**Файл:** src/local_agent/approval_manager.py  
-**Модель:** src/local_agent/models/approval.py  
+**Файл:** src/local_agent/approval_manager.py
+**Модель:** src/local_agent/models/approval.py
 **Тесты:** test/test_approval_manager.py, test/test_approval_model.py, test/test_plan_approval.py
 
 Назначение: сохранять запросы подтверждения и фиксировать решение пользователя. Компонент не исполняет подтверждённое действие.
@@ -179,7 +178,7 @@
 
 ### 3.4 Orchestrator — координация планирования и выполнения
 
-**Файл:** src/local_agent/orchestrator.py  
+**Файл:** src/local_agent/orchestrator.py
 **Тесты:** test/test_orchestrator.py, test/test_plan_approval.py
 
 Назначение: связывать создание задачи, Planner, подтверждение плана, Executor и Reviewer.
@@ -223,7 +222,7 @@
 
 ### 3.5 RecoveryManager — проверка и восстановление после перезапуска
 
-**Файл:** src/local_agent/recovery_manager.py  
+**Файл:** src/local_agent/recovery_manager.py
 **Тесты:** test/test_recovery_manager.py
 
 Публичный тип: RecoveryError(Exception) — ошибка противоречивых данных восстановления.
@@ -264,7 +263,7 @@
 
 ### 3.6 ExecutionRecorder — журнал выполнений и трассировка
 
-**Файлы:** src/local_agent/execution/recorder.py, src/local_agent/execution/models.py  
+**Файлы:** src/local_agent/execution/recorder.py, src/local_agent/execution/models.py
 **Тесты:** test/test_execution_recorder.py
 
 Назначение: отдельно от состояния задачи хранить отдельные попытки выполнения и последовательность событий. Метаданные и события сохраняются в SQLite; трассы записываются в каталог trace_directory.
@@ -301,7 +300,7 @@
 
 ### 3.7 ModelClient — клиент модели
 
-**Файл:** src/local_agent/model_client.py  
+**Файл:** src/local_agent/model_client.py
 **Тесты:** test/test_model_client.py
 
 Типы ошибок:
@@ -330,7 +329,7 @@
 
 ### 3.8 ModelRouter — выбор модели по роли
 
-**Файл:** src/local_agent/model_router.py  
+**Файл:** src/local_agent/model_router.py
 **Тесты:** test/test_model_router.py
 
 Конструктор:
@@ -353,7 +352,7 @@
 
 ### 3.9 ContextManager — явный контекст сообщений
 
-**Файл:** src/local_agent/context_manager.py  
+**Файл:** src/local_agent/context_manager.py
 **Тесты:** test/test_context_manager.py
 
 Тип MessageRole — Literal с допустимыми значениями system, user, assistant.
@@ -379,7 +378,7 @@
 
 ### 3.10 Агентные Protocol и заглушки
 
-**Файлы:** src/local_agent/agents/protocols.py, src/local_agent/agents/stubs.py  
+**Файлы:** src/local_agent/agents/protocols.py, src/local_agent/agents/stubs.py
 **Тесты:** test/test_agent_protocols.py, test/test_agent_stubs.py, test/test_agent_models.py
 
 Контракты в protocols.py:
