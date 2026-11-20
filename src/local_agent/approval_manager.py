@@ -145,6 +145,29 @@ class ApprovalManager:
                 self.connection.commit()
                 return self._row_to_approval(existing)
 
+            cancelled = self.connection.execute(
+                """
+                SELECT 1
+                FROM approvals
+                WHERE task_id = ?
+                  AND action_type = ?
+                  AND parameters_hash = ?
+                  AND status = ?
+                LIMIT 1
+                """,
+                (
+                    task_id,
+                    action_type,
+                    parameters_hash,
+                    ApprovalStatus.CANCELLED.value,
+                ),
+            ).fetchone()
+
+            if cancelled is not None:
+                raise ValueError(
+                    "This action has been permanently cancelled"
+                )
+
             approval_id = str(uuid4())
             created_at = datetime.now(UTC).isoformat()
 
@@ -282,6 +305,9 @@ class ApprovalManager:
 
     def reject(self, approval_id: str) -> Approval:
         return self._decide(approval_id, ApprovalStatus.REJECTED)
+
+    def cancel(self, approval_id: str) -> Approval:
+        return self._decide(approval_id, ApprovalStatus.CANCELLED)
 
     def is_approved(
             self,

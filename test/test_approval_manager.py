@@ -88,7 +88,7 @@ def test_changed_parameters_require_new_approval(managers):
 
 
 def test_approve_changes_status(managers):
-    task_id, manager, _= managers
+    task_id, manager, _ = managers
 
     approval = manager.request_approval(
         task_id, "CREATE_FILE", {"path": "main.py"}
@@ -192,6 +192,7 @@ def test_approval_survives_manager_restart(tmp_path):
             task_id, "CREATE_FILE", {"path": "main.py"}
         )
 
+
 def test_unknown_task_cannot_request_approval(tmp_path):
     database_path = tmp_path / "test.db"
 
@@ -205,6 +206,8 @@ def test_unknown_task_cannot_request_approval(tmp_path):
             "CREATE_FILE",
             {"path": "main.py"},
         )
+
+
 def test_non_dict_parameters_are_rejected(managers):
     task_id, manager, _ = managers
 
@@ -237,6 +240,7 @@ def test_nan_parameters_are_rejected(managers):
             {"value": float("nan")},
         )
 
+
 def test_concurrent_requests_reuse_same_approval(tmp_path):
     database_path = tmp_path / "test.db"
 
@@ -265,6 +269,7 @@ def test_concurrent_requests_reuse_same_approval(tmp_path):
 
     assert approval_ids[0] == approval_ids[1]
 
+
 def test_close_does_not_close_external_connection():
     connection = sqlite3.connect(":memory:")
 
@@ -286,6 +291,7 @@ def test_close_does_not_close_external_connection():
     connection.execute("SELECT 1")
     connection.close()
 
+
 def test_close_closes_owned_connection(tmp_path):
     manager = ApprovalManager(tmp_path / "test.db")
     connection = manager.connection
@@ -294,6 +300,7 @@ def test_close_closes_owned_connection(tmp_path):
 
     with pytest.raises(sqlite3.ProgrammingError):
         connection.execute("SELECT 1")
+
 
 def test_request_approval_moves_task_to_waiting(managers):
     task_id, manager, state_manager = managers
@@ -334,8 +341,9 @@ def test_reject_resumes_task(managers):
 
     assert state_manager.get_state(task_id) == TaskStatus.RUNNING
 
+
 def test_request_approval_rolls_back_if_task_transition_fails(
-    managers, monkeypatch
+        managers, monkeypatch
 ):
     _, manager, state_manager = managers
 
@@ -370,6 +378,7 @@ def test_request_approval_rolls_back_if_task_transition_fails(
 
     assert count == 0
 
+
 def test_approve_rolls_back_if_task_transition_fails(managers):
     task_id, manager, state_manager = managers
 
@@ -389,6 +398,7 @@ def test_approve_rolls_back_if_task_transition_fails(managers):
     assert restored.status == ApprovalStatus.PENDING
     assert restored.decided_at is None
     assert state_manager.get_state(task_id) == TaskStatus.CANCELLED
+
 
 def test_get_pending_approvals_returns_only_pending(managers):
     task_id, approval_manager, _ = managers
@@ -410,3 +420,91 @@ def test_get_pending_approvals_returns_only_pending(managers):
 
     assert len(result) == 1
     assert result[0].approval_id == pending.approval_id
+
+
+def test_cancel_changes_status(managers):
+    task_id, manager, state_manager = managers
+
+    approval = manager.request_approval(
+        task_id,
+        "CREATE_FILE",
+        {"path": "main.py"},
+    )
+
+    result = manager.cancel(approval.approval_id)
+
+    assert result.status == ApprovalStatus.CANCELLED
+    assert result.decided_at is not None
+    assert state_manager.get_state(task_id) == TaskStatus.RUNNING
+
+
+def test_cancelled_request_cannot_be_created_again(managers):
+    task_id, manager, _ = managers
+
+    approval = manager.request_approval(
+        task_id,
+        "CREATE_FILE",
+        {"path": "main.py"},
+    )
+    manager.cancel(approval.approval_id)
+
+    with pytest.raises(
+        ValueError,
+        match="permanently cancelled",
+    ):
+        manager.request_approval(
+            task_id,
+            "CREATE_FILE",
+            {"path": "main.py"},
+        )
+
+
+def test_changed_parameters_allowed_after_cancellation(managers):
+    task_id, manager, _ = managers
+
+    first = manager.request_approval(
+        task_id,
+        "CREATE_FILE",
+        {"path": "main.py"},
+    )
+    manager.cancel(first.approval_id)
+
+    second = manager.request_approval(
+        task_id,
+        "CREATE_FILE",
+        {"path": "other.py"},
+    )
+
+    assert second.approval_id != first.approval_id
+    assert second.status == ApprovalStatus.PENDING
+
+
+def test_cancelled_approval_survives_manager_restart(tmp_path):
+    database_path = tmp_path / "test.db"
+
+    with StateManager(database_path) as state_manager:
+        task_id = state_manager.create_task("Test task")
+
+    with ApprovalManager(database_path) as manager:
+        approval = manager.request_approval(
+            task_id,
+            "CREATE_FILE",
+            {"path": "main.py"},
+        )
+        manager.cancel(approval.approval_id)
+        approval_id = approval.approval_id
+
+    with ApprovalManager(database_path) as manager:
+        restored = manager.get_approval(approval_id)
+
+        assert restored.status == ApprovalStatus.CANCELLED
+
+        with pytest.raises(
+            ValueError,
+            match="permanently cancelled",
+        ):
+            manager.request_approval(
+                task_id,
+                "CREATE_FILE",
+                {"path": "main.py"},
+            )

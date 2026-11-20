@@ -11,6 +11,7 @@ class ApprovalStatus(StrEnum):
     PENDING = "PENDING"
     APPROVED = "APPROVED"
     REJECTED = "REJECTED"
+    CANCELLED = "CANCELLED"
 
 
 @dataclass(frozen=True, slots=True)
