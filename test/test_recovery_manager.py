@@ -265,6 +265,10 @@ def test_pending_approval_survives_restart(tmp_path):
         assert len(pending) == 1
         assert pending[0].approval_id == approval.approval_id
         assert pending[0].status == ApprovalStatus.PENDING
+        assert (
+            state_manager.get_state(task_id)
+            == TaskStatus.WAITING_FOR_APPROVAL
+        )
 
         recovery_manager.recover()
 

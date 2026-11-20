@@ -499,6 +499,15 @@ def test_cancelled_approval_survives_manager_restart(tmp_path):
 
         assert restored.status == ApprovalStatus.CANCELLED
 
+        assert not manager.is_approved(
+            task_id,
+            "CREATE_FILE",
+            {"path": "main.py"},
+        )
+
+        with pytest.raises(ValueError, match="not pending"):
+            manager.approve(approval_id)
+
         with pytest.raises(
             ValueError,
             match="permanently cancelled",
@@ -508,3 +517,53 @@ def test_cancelled_approval_survives_manager_restart(tmp_path):
                 "CREATE_FILE",
                 {"path": "main.py"},
             )
+
+
+def test_cancelled_approval_is_not_approved(managers):
+    task_id, manager, _ = managers
+
+    approval = manager.request_approval(
+        task_id,
+        "CREATE_FILE",
+        {"path": "main.py"},
+    )
+    manager.cancel(approval.approval_id)
+
+    assert not manager.is_approved(
+        task_id,
+        "CREATE_FILE",
+        {"path": "main.py"},
+    )
+
+
+def test_cancelled_approval_cannot_be_approved(managers):
+    task_id, manager, _ = managers
+
+    approval = manager.request_approval(
+        task_id,
+        "CREATE_FILE",
+        {"path": "main.py"},
+    )
+    manager.cancel(approval.approval_id)
+
+    with pytest.raises(ValueError, match="not pending"):
+        manager.approve(approval.approval_id)
+
+
+def test_cancel_resumes_task_without_approving_action(managers):
+    task_id, manager, state_manager = managers
+
+    approval = manager.request_approval(
+        task_id,
+        "CREATE_FILE",
+        {"path": "main.py"},
+    )
+
+    manager.cancel(approval.approval_id)
+
+    assert state_manager.get_state(task_id) == TaskStatus.RUNNING
+    assert not manager.is_approved(
+        task_id,
+        "CREATE_FILE",
+        {"path": "main.py"},
+    )
