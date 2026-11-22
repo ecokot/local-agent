@@ -63,3 +63,18 @@ class ExecutionEvent:
             timestamp=value["timestamp"],
             data=deepcopy(value["data"]),
         )
+
+
+class ToolExecutionStatus(StrEnum):
+    WAITING_FOR_APPROVAL = "WAITING_FOR_APPROVAL"
+    SUCCEEDED = "SUCCEEDED"
+    FAILED = "FAILED"
+
+
+@dataclass(frozen=True, slots=True)
+class ToolExecutionResult:
+    status: ToolExecutionStatus
+    execution_id: str | None = None
+    approval_id: str | None = None
+    result: Any | None = None
+    error: str | None = None
