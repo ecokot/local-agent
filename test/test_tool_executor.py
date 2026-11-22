@@ -372,3 +372,57 @@ def test_failure_recording_error_preserves_both_errors(
 
     assert execution_recorder.get_status(result.execution_id) == "RUNNING"
     assert result.execution_id in execution_recorder.get_incomplete_executions()
+
+
+
+def test_is_approved_false_prevents_execution(
+    executor_environment,
+    execution_recorder,
+    monkeypatch,
+):
+    executor, approval_manager, task_id, tools = executor_environment
+    parameters = {"path": "example.txt", "content": "Hello"}
+
+    pending = executor.execute(task_id, "create_file", parameters)
+    approval_manager.approve(pending.approval_id)
+
+    monkeypatch.setattr(
+        approval_manager,
+        "is_approved",
+        lambda **kwargs: False,
+    )
+
+    result = executor.execute(task_id, "create_file", parameters)
+
+    assert result.status == ToolExecutionStatus.FAILED
+    assert "Approval verification failed" in result.error
+    assert not tools["create_file"].calls
+    assert execution_recorder.get_executions_for_task(task_id) == []
+
+
+def test_is_approved_exception_prevents_execution(
+    executor_environment,
+    execution_recorder,
+    monkeypatch,
+):
+    executor, approval_manager, task_id, tools = executor_environment
+    parameters = {"path": "example.txt", "content": "Hello"}
+
+    pending = executor.execute(task_id, "create_file", parameters)
+    approval_manager.approve(pending.approval_id)
+
+    def fail_verification(**kwargs):
+        raise RuntimeError("Approval database unavailable")
+
+    monkeypatch.setattr(
+        approval_manager,
+        "is_approved",
+        fail_verification,
+    )
+
+    result = executor.execute(task_id, "create_file", parameters)
+
+    assert result.status == ToolExecutionStatus.FAILED
+    assert "Approval database unavailable" in result.error
+    assert not tools["create_file"].calls
+    assert execution_recorder.get_executions_for_task(task_id) == []

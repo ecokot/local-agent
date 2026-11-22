@@ -1,22 +1,29 @@
-﻿ЭТАП: Этап 5
-КОММИТ: 1c1c0d7
-ДАТА: 2026-11-20 09:52:39
+﻿ЭТАП: Этап 6
+КОММИТ: e31c951
+ДАТА: 2026-11-23 01:27:33
 
 СТРУКТУРА ПРОЕКТА
 local-agent
-+--- data
-|   +--- traces
-|   |   \--- f77ae6fd-9826-4a9d-a2cc-7db6cc8c1468.jsonl
-|   \--- agent.db
 +--- src
 |   +--- local_agent
 |   |   +--- agents
 |   |   |   +--- protocols.py
 |   |   |   \--- stubs.py
 |   |   +--- execution
+|   |   |   +--- tools
+|   |   |   |   +--- __init__.py
+|   |   |   |   +--- create_file.py
+|   |   |   |   +--- get_diff.py
+|   |   |   |   +--- list_directory.py
+|   |   |   |   +--- read_file.py
+|   |   |   |   +--- run_command.py
+|   |   |   |   +--- run_tests.py
+|   |   |   |   \--- write_file.py
 |   |   |   +--- __init__.py
 |   |   |   +--- models.py
-|   |   |   \--- recorder.py
+|   |   |   +--- recorder.py
+|   |   |   +--- tool_executor.py
+|   |   |   \--- workspace.py
 |   |   +--- models
 |   |   |   +--- __init__.py
 |   |   |   +--- agent.py
@@ -41,17 +48,27 @@ local-agent
 |   +--- test_approval_manager.py
 |   +--- test_approval_model.py
 |   +--- test_context_manager.py
+|   +--- test_create_file.py
 |   +--- test_execution_recorder.py
+|   +--- test_get_diff.py
+|   +--- test_list_directory.py
 |   +--- test_model_client.py
 |   +--- test_model_router.py
 |   +--- test_orchestrator.py
 |   +--- test_plan_approval.py
 |   +--- test_plan_models.py
+|   +--- test_read_file.py
 |   +--- test_recovery_manager.py
-|   \--- test_state_manager.py
+|   +--- test_run_command.py
+|   +--- test_run_tests.py
+|   +--- test_state_manager.py
+|   +--- test_tool_executor.py
+|   +--- test_workspace.py
+|   \--- test_write_file.py
 +--- .gitignore
 +--- .python-version
 +--- check_model.py
++--- MODULE_CONTRACTS.md
 +--- plan.MD
 +--- PROJECT_STRUCTURE.txt
 +--- pyproject.toml

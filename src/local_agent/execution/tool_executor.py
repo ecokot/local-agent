@@ -109,10 +109,10 @@ class ToolExecutor:
         }
 
     def execute(
-        self,
-        task_id: str,
-        tool_name: str,
-        parameters: dict[str, Any],
+            self,
+            task_id: str,
+            tool_name: str,
+            parameters: dict[str, Any],
     ) -> ToolExecutionResult:
         if not isinstance(task_id, str) or not task_id.strip():
             return self._failed("Task ID must be a non-empty string")
@@ -140,8 +140,11 @@ class ToolExecutor:
                     action_type=definition.action_type,
                     parameters=parameters,
                 )
-            except (ValueError, TypeError, RuntimeError) as error:
-                return self._failed(str(error))
+            except (ValueError, TypeError, RuntimeError, OSError) as error:
+                return self._failed(
+                    f"Approval request failed. "
+                    f"The tool was not executed: {error}"
+                )
 
             if approval.status == ApprovalStatus.PENDING:
                 return ToolExecutionResult(
@@ -154,11 +157,19 @@ class ToolExecutor:
                     f"Action is not approved: {approval.status}"
                 )
 
-            if not self._approval_manager.is_approved(
+            try:
+                is_approved = self._approval_manager.is_approved(
                     task_id=task_id,
                     action_type=definition.action_type,
                     parameters=parameters,
-            ):
+                )
+            except (ValueError, TypeError, RuntimeError, OSError) as error:
+                return self._failed(
+                    "Approval verification failed. "
+                    f"The tool was not executed: {error}"
+                )
+
+            if not is_approved:
                 return self._failed(
                     "Approval verification failed. "
                     "The tool was not executed."
@@ -176,7 +187,16 @@ class ToolExecutor:
 
         try:
             result = definition.execute(**parameters)
-        except Exception as error:
+        except (
+                ValueError,
+                TypeError,
+                OSError,
+                RuntimeError,
+                KeyError,
+                AttributeError,
+                LookupError,
+                ArithmeticError,
+        ) as error:
             try:
                 self._execution_recorder.fail_execution(
                     execution_id,
