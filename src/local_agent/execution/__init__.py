@@ -1,3 +1,8 @@
+from local_agent.execution.backend import (
+    ExecutionBackend,
+    ExecutionBackendError,
+    ExecutionResult,
+)
 from local_agent.execution.models import (
     ExecutionEvent,
     ExecutionEventType,
@@ -10,10 +15,13 @@ from local_agent.execution.recorder import (
 )
 
 __all__ = [
+    "ExecutionBackend",
+    "ExecutionBackendError",
     "ExecutionEvent",
     "ExecutionEventType",
     "ExecutionRecorder",
     "ExecutionRecorderError",
+    "ExecutionResult",
     "ToolExecutionResult",
     "ToolExecutionStatus",
 ]
