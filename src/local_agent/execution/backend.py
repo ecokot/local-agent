@@ -1,4 +1,5 @@
 import math
+import re
 import subprocess
 import uuid
 from collections.abc import Sequence
@@ -21,6 +22,21 @@ class ExecutionBackendError(RuntimeError):
     """Ошибка запуска или управления изолированным выполнением."""
 
 
+_IMAGE_COMPONENT = (
+    r"[a-z0-9]+(?:(?:[._]|__|[-]+)[a-z0-9]+)*"
+)
+
+_IMAGE_REFERENCE = re.compile(
+    rf"^(?:"
+    rf"[a-zA-Z0-9](?:[a-zA-Z0-9.-]*[a-zA-Z0-9])?"
+    rf"(?::[0-9]{{1,5}})?/"
+    rf")?"
+    rf"{_IMAGE_COMPONENT}(?:/{_IMAGE_COMPONENT})*"
+    rf"(?::[A-Za-z0-9_][A-Za-z0-9_.-]{{0,127}})?"
+    rf"(?:@sha256:[a-f0-9]{{64}})?$"
+)
+
+
 class ExecutionBackend:
     """Выполняет команды в ограниченном Docker-контейнере."""
 
@@ -34,14 +50,18 @@ class ExecutionBackend:
         if not isinstance(workspace, Workspace):
             raise TypeError("workspace must be a Workspace instance")
 
-        if not isinstance(image, str) or not image.strip():
-            raise ValueError("image must be a non-empty string")
+        if (
+            not isinstance(image, str)
+            or len(image) > 255
+            or not _IMAGE_REFERENCE.fullmatch(image)
+        ):
+            raise ValueError("image must be a valid Docker image reference")
 
         if (
-                isinstance(timeout_seconds, bool)
-                or not isinstance(timeout_seconds, (int, float))
-                or not math.isfinite(timeout_seconds)
-                or timeout_seconds <= 0
+            isinstance(timeout_seconds, bool)
+            or not isinstance(timeout_seconds, (int, float))
+            or not math.isfinite(timeout_seconds)
+            or timeout_seconds <= 0
         ):
             raise ValueError(
                 "timeout_seconds must be a finite number greater than zero"
@@ -120,54 +140,70 @@ class ExecutionBackend:
                 f"Could not start Docker CLI: {error}"
             ) from error
 
+        stdout = ""
+        stderr = ""
+        timed_out = False
+        container_exists = False
+
         try:
-            stdout, stderr = process.communicate(
-                timeout=self._timeout_seconds
-            )
-        except subprocess.TimeoutExpired:
-            cleanup_error = None
-
-            try:
-                self._remove_and_verify(container_name)
-            except ExecutionBackendError as error:
-                cleanup_error = error
-
             try:
                 stdout, stderr = process.communicate(
-                    timeout=self._cleanup_timeout
+                    timeout=self._timeout_seconds
                 )
             except subprocess.TimeoutExpired:
-                process.kill()
-                stdout, stderr = process.communicate()
+                timed_out = True
 
-            if cleanup_error is not None:
-                raise cleanup_error
+        finally:
+            try:
+                if timed_out or process.poll() is None:
+                    stdout, stderr = self._stop_docker_process(process)
+            finally:
+                container_exists = self._container_exists(container_name)
 
-            return ExecutionResult(
-                stdout=stdout,
-                stderr=stderr,
-                exit_code=None,
-                timed_out=True,
-            )
+                if container_exists:
+                    self._remove_and_verify(container_name)
 
-        container_exists = self._container_exists(container_name)
-
-        if not container_exists:
+        if not timed_out and not container_exists:
             raise ExecutionBackendError(
                 "Docker did not create the container or execution failed "
-                f"before the container started. "
+                "before the container started. "
                 f"Exit code: {process.returncode}. "
                 f"Stderr: {stderr.strip()}"
             )
 
-        self._remove_and_verify(container_name)
-
         return ExecutionResult(
             stdout=stdout,
             stderr=stderr,
-            exit_code=process.returncode,
-            timed_out=False,
+            exit_code=None if timed_out else process.returncode,
+            timed_out=timed_out,
         )
+
+    def _stop_docker_process(
+        self,
+        process: subprocess.Popen,
+    ) -> tuple[str, str]:
+        """Останавливает Docker CLI и ограниченно ожидает его завершения."""
+
+        if process.poll() is None:
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
+            except OSError as error:
+                raise ExecutionBackendError(
+                    f"Could not terminate Docker CLI: {error}"
+                ) from error
+
+        try:
+            return process.communicate(timeout=self._cleanup_timeout)
+        except subprocess.TimeoutExpired as error:
+            raise ExecutionBackendError(
+                "Docker CLI did not terminate after being killed"
+            ) from error
+        except OSError as error:
+            raise ExecutionBackendError(
+                f"Could not wait for Docker CLI termination: {error}"
+            ) from error
 
     def _container_exists(self, container_name: str) -> bool:
         """Проверяет наличие контейнера, отличая его отсутствие от ошибки Docker."""
@@ -190,9 +226,9 @@ class ExecutionBackend:
         if result.returncode == 0:
             return True
 
-        if (
-            result.returncode == 1
-            and "no such object" in result.stderr.lower()
+        if result.returncode == 1 and any(
+            message in result.stderr.lower()
+            for message in ("no such object", "no such container")
         ):
             return False
 
