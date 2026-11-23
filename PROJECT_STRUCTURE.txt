@@ -1,11 +1,15 @@
-﻿ЭТАП: Этап 6
-Актуальность: 2026-11-23
-Репозиторий: https://github.com/ecokot/local-agent
-Ветка инвентаризации: main
-Коммит инвентаризации: 04aff91
+﻿ЭТАП: Этап 6А
+КОММИТ: c37e0e7
+ДАТА: 2026-11-23 13:42:20
 
 СТРУКТУРА ПРОЕКТА
 local-agent
++--- data
+|   +--- traces
+|   |   \--- f77ae6fd-9826-4a9d-a2cc-7db6cc8c1468.jsonl
+|   \--- agent.db
++--- docs
+|   \--- EXECUTION_ISOLATION_RESEARCH.md
 +--- src
 |   +--- local_agent
 |   |   +--- agents
