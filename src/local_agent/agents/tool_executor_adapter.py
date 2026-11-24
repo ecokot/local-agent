@@ -44,8 +44,10 @@ class ToolExecutorAdapter:
             return ExecutionResult(
                 success=False,
                 errors=[
-                    "The plan changed while execution was waiting. "
-                    "A new task is required."
+                    (
+                        "The plan changed while execution was waiting. "
+                        "A new task is required."
+                    )
                 ],
                 step_results=deepcopy(progress.step_results),
             )
