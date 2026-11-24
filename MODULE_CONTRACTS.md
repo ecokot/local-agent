@@ -794,12 +794,11 @@ TaskStatus импортируется для типизации из state_manag
 
 Реализованная часть:
 
-1. Orchestrator вызывает StateManager.create_task(description).
-2. Задача получает статус CREATED.
-3. Orchestrator переводит её в RUNNING для этапа подготовки плана.
-4. Planner.create_plan(task) возвращает Plan.
-5. Orchestrator сериализует Plan в параметры запроса EXECUTE_PLAN.
-6. ApprovalManager сохраняет запрос и переводит задачу в WAITING_FOR_APPROVAL.
+1. Orchestrator вызывает StateManager.create_task(description); задача получает статус CREATED.
+2. Planner.create_plan(task) формирует и возвращает Plan.
+3. Orchestrator сериализует Plan в параметры запроса PLAN_APPROVAL.
+4. ApprovalManager сохраняет запрос и переводит задачу в WAITING_FOR_APPROVAL.
+5. После одобрения PLAN_APPROVAL задача переводится в RUNNING.
 
 План хранится как параметры Approval в SQLite. Отдельной таблицы планов в текущей реализации нет.
 
