@@ -29,7 +29,7 @@ class StubPlanner:
         )
 
 class StubExecutor:
-    def execute(self, plan: Plan) -> ExecutionResult:
+    def execute(self, task_id: str, plan: Plan) -> ExecutionResult:
         return ExecutionResult(
             success=True,
             output=f"Executed {len(plan.steps)} steps (stub)",
