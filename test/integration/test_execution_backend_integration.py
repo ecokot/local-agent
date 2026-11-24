@@ -6,28 +6,22 @@ from types import SimpleNamespace
 import pytest
 
 from local_agent.execution.backend import ExecutionBackend
+from local_agent.execution.tools.run_command import RunCommandTool
+from local_agent.execution.tools.run_tests import RunTestsTool
 from local_agent.execution.workspace import Workspace
 
 IMAGE = "local-agent-python-test:3.12"
 WORKSPACE_PATH = Path(__file__).parent / ".workspace"
 
 
-@pytest.fixture(scope="session", autouse=True)
-def prepare_workspace():
-    WORKSPACE_PATH.mkdir(parents=True, exist_ok=True)
-
-
 @pytest.fixture
 def workspace_path():
     WORKSPACE_PATH.mkdir(parents=True, exist_ok=True)
 
-    for path in WORKSPACE_PATH.iterdir():
-        if path.is_file() or path.is_symlink():
-            path.unlink()
-        elif path.is_dir():
-            shutil.rmtree(path)
-
-    return WORKSPACE_PATH
+    try:
+        yield WORKSPACE_PATH
+    finally:
+        shutil.rmtree(WORKSPACE_PATH, ignore_errors=True)
 
 
 @pytest.fixture
@@ -69,7 +63,7 @@ def assert_container_removed(container_name):
 
     assert result.returncode != 0
     assert (
-        "no such" in result.stderr.lower()
+            "no such" in result.stderr.lower()
     ), result.stderr
 
 
@@ -156,8 +150,8 @@ def test_container_has_no_network_access(backend):
 
 
 def test_host_files_outside_workspace_are_not_accessible(
-    backend,
-    workspace_path,
+        backend,
+        workspace_path,
 ):
     secret_path = workspace_path.parent / "host-secret.txt"
     secret_content = "HOST_SECRET_6B_TEST"
@@ -248,8 +242,8 @@ def test_container_has_resource_limits_applied(backend):
 
 
 def test_container_is_removed_after_normal_execution(
-    workspace_path,
-    monkeypatch,
+        workspace_path,
+        monkeypatch,
 ):
     container_name = "local-agent-integration-normal-6b"
 
@@ -276,8 +270,8 @@ def test_container_is_removed_after_normal_execution(
 
 
 def test_container_is_removed_after_timeout(
-    workspace_path,
-    monkeypatch,
+        workspace_path,
+        monkeypatch,
 ):
     container_name = "local-agent-integration-timeout-6b"
 
@@ -304,3 +298,63 @@ def test_container_is_removed_after_timeout(
     assert result.exit_code is None
 
     assert_container_removed(container_name)
+
+
+def test_run_command_tool_executes_through_docker_backend(backend):
+    tool = RunCommandTool(backend)
+
+    result = tool.execute(
+        [
+            "python",
+            "-c",
+            (
+                "import os, sys; "
+                "print('stdout from Docker'); "
+                "print('stderr from Docker', file=sys.stderr); "
+                "print(f'{sys.platform} {os.getuid()} {os.getgid()}')"
+            ),
+        ]
+    )
+
+    assert result.command[0] == "python"
+    assert result.stdout == (
+        "stdout from Docker\n"
+        "linux 10000 10000\n"
+    )
+    assert result.stderr == "stderr from Docker\n"
+    assert result.exit_code == 0
+    assert result.timed_out is False
+
+
+def test_run_tests_tool_executes_pytest_through_docker_backend(
+        backend,
+        workspace_path,
+):
+    test_file = workspace_path / "test_sample.py"
+    test_file.write_text(
+        (
+            "import os\n"
+            "import sys\n"
+            "\n"
+            "def test_runs_inside_docker():\n"
+            "    assert sys.platform == 'linux'\n"
+            "    assert os.getuid() == 10000\n"
+            "    assert os.getgid() == 10000\n"
+        ),
+        encoding="utf-8",
+    )
+
+    command_tool = RunCommandTool(backend)
+    tool = RunTestsTool(command_tool)
+
+    result = tool.execute()
+
+    assert result.command == ("uv", "run", "pytest", "-v")
+    assert result.passed is True
+    assert result.exit_code == 0
+    assert "test_sample.py" in result.stdout
+    assert "1 passed" in result.stdout
+    assert result.stderr == ""
+    assert result.timed_out is False
+    assert result.stdout_truncated is False
+    assert result.stderr_truncated is False
