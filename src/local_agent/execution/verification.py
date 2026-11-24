@@ -2,9 +2,12 @@ from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 
-from local_agent.execution.tools.run_command import RunCommandTool
+from local_agent.execution.tools.run_command import (
+    RunCommandError,
+    RunCommandTool,
+)
 from local_agent.execution.tools.run_tests import RunTestsTool
-from local_agent.execution.workspace import Workspace
+from local_agent.execution.workspace import Workspace, WorkspaceError
 from local_agent.models.plan import (
     FileExistsCriterion,
     Plan,
@@ -142,7 +145,13 @@ class VerificationExecutor:
                     exit_code=result.exit_code,
                 ),
             )
-        except Exception as error:
+        except (
+            RunCommandError,
+            RuntimeError,
+            AttributeError,
+            TypeError,
+            ValueError,
+        ) as error:
             return self._error_result(criterion, error)
 
     def _execute_ruff(
@@ -174,7 +183,13 @@ class VerificationExecutor:
                     exit_code=result.exit_code,
                 ),
             )
-        except Exception as error:
+        except (
+            RunCommandError,
+            RuntimeError,
+            AttributeError,
+            TypeError,
+            ValueError,
+        ) as error:
             return self._error_result(criterion, error)
 
     def _execute_file_exists(
@@ -208,7 +223,14 @@ class VerificationExecutor:
                 details=VerificationDetails(file_path=path),
                 diagnostic=diagnostic,
             )
-        except Exception as error:
+        except (
+            WorkspaceError,
+            OSError,
+            RuntimeError,
+            AttributeError,
+            TypeError,
+            ValueError,
+        ) as error:
             return self._error_result(criterion, error)
 
     @staticmethod
