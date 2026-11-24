@@ -397,7 +397,9 @@ def test_multiple_tasks_can_wait_for_approval(tmp_path) -> None:
 
 
 
-def test_reviewer_rejection_marks_successful_execution_failed(tmp_path) -> None:
+def test_reviewer_rejection_requests_revised_plan_approval(
+        tmp_path,
+) -> None:
     with StateManager(tmp_path / "agent.db") as state_manager, ApprovalManager(
             connection=state_manager.connection,
             state_manager=state_manager,
@@ -409,10 +411,16 @@ def test_reviewer_rejection_marks_successful_execution_failed(tmp_path) -> None:
         approval = orchestrator.prepare_task("Reviewer rejects")
         approval_manager.approve(approval.approval_id)
 
-        review = orchestrator.execute_approved_plan(approval.approval_id)
+        revised_approval = orchestrator.execute_approved_plan(
+            approval.approval_id
+        )
 
-        assert review.approved is False
-        assert state_manager.get_state(approval.task_id) == TaskStatus.FAILED
+        assert isinstance(revised_approval, Approval)
+        assert revised_approval.status == ApprovalStatus.PENDING
+        assert revised_approval.parameters["revision"] == 1
+        assert state_manager.get_state(approval.task_id) == (
+            TaskStatus.WAITING_FOR_APPROVAL
+        )
 
 
 
