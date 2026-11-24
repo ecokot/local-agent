@@ -69,7 +69,6 @@ class ToolExecutorAdapter:
             completed = self._find_completed_step(
                 progress,
                 signature,
-                step_index,
             )
 
             if completed is not None:
@@ -154,7 +153,6 @@ class ToolExecutorAdapter:
     def _find_completed_step(
         progress: _TaskProgress,
         signature: tuple[str, str],
-        step_index: int,
     ) -> dict[str, Any] | None:
         for completed_index, completed in enumerate(progress.completed_steps):
             if (
