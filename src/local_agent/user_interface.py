@@ -70,6 +70,7 @@ class UserInterface:
                     self.approval_manager.approve(pending.approval_id)
                 elif decision == "n":
                     self.approval_manager.reject(pending.approval_id)
+                    self.orchestrator.clear_execution_progress(pending.task_id)
                     print(
                         "\nДействие отклонено. "
                         "Задача завершена с ошибкой."
@@ -77,6 +78,7 @@ class UserInterface:
                     return
                 else:
                     self.approval_manager.cancel(pending.approval_id)
+                    self.orchestrator.clear_execution_progress(pending.task_id)
                     print("\nДействие отменено. Задача отменена.")
                     return
 
