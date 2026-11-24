@@ -33,7 +33,10 @@ class Orchestrator:
             return self.approval_manager.request_approval(
                 task_id=task_id,
                 action_type="PLAN_APPROVAL",
-                parameters={"plan": plan.model_dump(mode="json"), "revision": 0},
+                parameters={
+                    "plan": plan.model_dump(mode="json"),
+                    "revision": 0,
+                },
             )
         except Exception:
             if self.state_manager.get_state(task_id) == TaskStatus.CREATED:
@@ -80,13 +83,17 @@ class Orchestrator:
             raise
 
         revision = approval.parameters.get("revision", 0)
-        self.state_manager.record_review(
-            task_id=task_id,
-            revision=revision,
-            plan=plan.model_dump(mode="json"),
-            approved=review.approved,
-            feedback=review.feedback,
-        )
+        try:
+            self.state_manager.record_review(
+                task_id=task_id,
+                revision=revision,
+                plan=plan.model_dump(mode="json"),
+                approved=review.approved,
+                feedback=review.feedback,
+            )
+        except Exception:
+            self.state_manager.transition(task_id, TaskStatus.FAILED)
+            raise
 
         if review.approved:
             self.state_manager.transition(task_id, TaskStatus.SUCCEEDED)
