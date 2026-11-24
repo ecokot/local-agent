@@ -9,7 +9,7 @@ from local_agent.execution.verification import (
     VerificationStatus,
 )
 from local_agent.models.agent import ExecutionResult, ReviewResult
-from local_agent.models.approval import Approval
+from local_agent.models.approval import Approval, ApprovalStatus
 from local_agent.models.plan import Plan
 from local_agent.orchestrator import Orchestrator
 from local_agent.state_manager import StateManager, TaskStatus
@@ -220,7 +220,9 @@ def test_reviewer_rejection_prevents_success(tmp_path):
     )
     try:
         result = orchestrator.execute_approved_plan(approval.approval_id)
-        assert result.approved is False
+        assert isinstance(result, Approval)
+        assert result.status is ApprovalStatus.PENDING
+        assert result.parameters["revision"] == 1
         assert state.get_state(approval.task_id) is TaskStatus.WAITING_FOR_APPROVAL
     finally:
         _close(state, approvals)
