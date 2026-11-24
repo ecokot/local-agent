@@ -12,7 +12,7 @@ class StubPlanner:
                 {
                     "description": "Create test file",
                     "action": "create_file",
-                    "parameters": {"path": "test.txt"},
+                    "parameters": {"path": "test.txt", "content": "test"},
                 }
             ],
         )
