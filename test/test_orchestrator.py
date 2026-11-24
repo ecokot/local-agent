@@ -549,3 +549,32 @@ def test_revised_plan_approval_is_required_before_second_execution(tmp_path):
 
         assert executor.calls == 1
         assert state.get_state(initial.task_id) == TaskStatus.WAITING_FOR_APPROVAL
+
+
+
+class RaisingRevisingPlanner(StubPlanner):
+    def revise_plan(self, task, previous_plan, feedback):
+        raise RuntimeError("Plan revision failed")
+
+
+def test_revision_planner_exception_marks_task_failed_and_keeps_feedback(
+    tmp_path,
+):
+    with StateManager(tmp_path / "agent.db") as state, ApprovalManager(
+        connection=state.connection, state_manager=state
+    ) as approvals:
+        orchestrator = _make_orchestrator(
+            state, approvals,
+            planner=RaisingRevisingPlanner(),
+            reviewer=RejectingReviewer(),
+        )
+        initial = orchestrator.prepare_task("Planner revision failure")
+        approvals.approve(initial.approval_id)
+
+        with pytest.raises(RuntimeError, match="Plan revision failed"):
+            orchestrator.execute_approved_plan(initial.approval_id)
+
+        assert state.get_state(initial.task_id) == TaskStatus.FAILED
+        history = state.get_review_history(initial.task_id)
+        assert len(history) == 1
+        assert history[0]["feedback"] == "Rejected by reviewer"
