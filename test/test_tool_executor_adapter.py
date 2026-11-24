@@ -3,13 +3,13 @@ from local_agent.agents.tool_executor_adapter import ToolExecutorAdapter
 from local_agent.approval_manager import ApprovalManager
 from local_agent.execution.models import ToolExecutionResult, ToolExecutionStatus
 from local_agent.execution.recorder import ExecutionRecorder
+from local_agent.execution.tool_executor import ToolExecutor
 from local_agent.execution.verification import (
     CriterionVerificationResult,
     VerificationDetails,
     VerificationReport,
     VerificationStatus,
 )
-from local_agent.execution.tool_executor import ToolExecutor
 from local_agent.models.agent import ReviewResult
 from local_agent.models.plan import Plan
 from local_agent.orchestrator import Orchestrator
