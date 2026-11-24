@@ -1,4 +1,4 @@
-from local_agent.agents.tool_executor_adapter import ToolExecutorAdapter
+from local_agent.agents.stubs import StubPlanner\nfrom local_agent.agents.tool_executor_adapter import ToolExecutorAdapter\nfrom local_agent.models.agent import ReviewResult\nfrom local_agent.orchestrator import Orchestrator
 from local_agent.approval_manager import ApprovalManager
 from local_agent.execution.recorder import ExecutionRecorder
 from local_agent.execution.tool_executor import ToolExecutor
@@ -181,5 +181,59 @@ def test_changed_plan_is_rejected_while_execution_is_suspended(tmp_path):
         assert result.success is False
         assert "plan changed" in result.errors[0].lower()
         assert tools["create_file"].calls == []
+    finally:
+        close_environment(environment)
+
+
+
+class RecordingReviewer:
+    def __init__(self):
+        self.result = None
+
+    def review(self, plan, result):
+        self.result = result
+        return ReviewResult(approved=True)
+
+
+def test_orchestrator_resumes_after_action_approval_and_reviews_real_results(
+    tmp_path,
+):
+    environment = build_environment(tmp_path)
+    state, approvals, recorder, tools, adapter, task_id = environment
+    reviewer = RecordingReviewer()
+
+    try:
+        orchestrator = Orchestrator(
+            state_manager=state,
+            approval_manager=approvals,
+            planner=StubPlanner(),
+            executor=adapter,
+            reviewer=reviewer,
+        )
+
+        plan_approval = orchestrator.prepare_task("Create a file")
+        approvals.approve(plan_approval.approval_id)
+
+        first_result = orchestrator.execute_approved_plan(
+            plan_approval.approval_id
+        )
+
+        assert first_result.waiting_for_approval is True
+        assert reviewer.result is None
+        assert state.get_state(task_id) == TaskStatus.WAITING_FOR_APPROVAL
+        assert tools["create_file"].calls == []
+
+        approvals.approve(first_result.pending_approval_id)
+
+        review = orchestrator.execute_approved_plan(
+            plan_approval.approval_id
+        )
+
+        assert review.approved is True
+        assert reviewer.result.success is True
+        assert len(reviewer.result.step_results) == 1
+        assert reviewer.result.step_results[0]["result"]["tool"] == "create_file"
+        assert len(recorder.get_executions_for_task(task_id)) == 1
+        assert state.get_state(task_id) == TaskStatus.SUCCEEDED
     finally:
         close_environment(environment)
