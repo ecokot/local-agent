@@ -561,3 +561,23 @@ def test_cancel_marks_task_cancelled_without_approving_action(managers):
         "CREATE_FILE",
         {"path": "main.py"},
     )
+
+
+def test_rejected_action_remains_failed_after_other_pending_approval_is_decided(
+    managers,
+):
+    task_id, manager, state_manager = managers
+
+    rejected = manager.request_approval(
+        task_id, "CREATE_FILE", {"path": "first.py"}
+    )
+    remaining = manager.request_approval(
+        task_id, "WRITE_FILE", {"path": "second.py"}
+    )
+
+    manager.reject(rejected.approval_id)
+    assert state_manager.get_state(task_id) == TaskStatus.WAITING_FOR_APPROVAL
+
+    manager.approve(remaining.approval_id)
+
+    assert state_manager.get_state(task_id) == TaskStatus.FAILED
