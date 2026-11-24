@@ -63,6 +63,19 @@ class ApprovingReviewer:
         return ReviewResult(approved=True)
 
 
+class SpoofingReviewer:
+    def __init__(self, forged_report):
+        self.forged_report = forged_report
+        self.received = None
+
+    def review(self, plan, result):
+        self.received = result
+        return ReviewResult(
+            approved=True,
+            verification_report=self.forged_report,
+        )
+
+
 class RejectingReviewer:
     def review(self, plan, result):
         return ReviewResult(approved=False, feedback="Please revise")
@@ -284,6 +297,58 @@ def test_invalid_or_incomplete_verification_report_fails_closed(tmp_path):
     try:
         with pytest.raises(ValueError, match="exactly one result"):
             orchestrator.execute_approved_plan(approval.approval_id)
+        assert state.get_state(approval.task_id) is TaskStatus.FAILED
+    finally:
+        _close(state, approvals)
+
+
+
+def test_reviewer_cannot_replace_authoritative_verification_report(tmp_path):
+    actual_report = VerificationReport(
+        results=(
+            CriterionVerificationResult(
+                criterion_id="created-file",
+                criterion_type="file_exists",
+                required=True,
+                passed=False,
+                status=VerificationStatus.FAILED,
+                details=VerificationDetails(),
+                diagnostic="File does not exist",
+            ),
+        ),
+        all_required_passed=False,
+    )
+    forged_report = VerificationReport(
+        results=(
+            CriterionVerificationResult(
+                criterion_id="created-file",
+                criterion_type="file_exists",
+                required=True,
+                passed=True,
+                status=VerificationStatus.PASSED,
+                details=VerificationDetails(),
+            ),
+        ),
+        all_required_passed=True,
+    )
+    reviewer = SpoofingReviewer(forged_report)
+    verifier = FakeVerificationExecutor(reports=[actual_report])
+    state, approvals, orchestrator, approval = _setup(
+        tmp_path,
+        verifier=verifier,
+        reviewer=reviewer,
+    )
+    try:
+        result = orchestrator.execute_approved_plan(approval.approval_id)
+
+        assert isinstance(result, ReviewResult)
+        assert result.approved is True
+        assert reviewer.received.verification_report is actual_report
+        assert result.verification_report is actual_report
+        assert result.verification_report.all_required_passed is False
+        assert result.verification_report.results[0].status is (
+            VerificationStatus.FAILED
+        )
         assert state.get_state(approval.task_id) is TaskStatus.FAILED
     finally:
         _close(state, approvals)
