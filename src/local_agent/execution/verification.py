@@ -145,14 +145,7 @@ class VerificationExecutor:
                     exit_code=result.exit_code,
                 ),
             )
-        except (
-            RunCommandError,
-            OSError,
-            RuntimeError,
-            AttributeError,
-            TypeError,
-            ValueError,
-        ) as error:
+        except (RunCommandError, OSError) as error:
             return self._error_result(criterion, error)
 
     def _execute_ruff(
@@ -184,14 +177,7 @@ class VerificationExecutor:
                     exit_code=result.exit_code,
                 ),
             )
-        except (
-            RunCommandError,
-            OSError,
-            RuntimeError,
-            AttributeError,
-            TypeError,
-            ValueError,
-        ) as error:
+        except (RunCommandError, OSError) as error:
             return self._error_result(criterion, error)
 
     def _execute_file_exists(
@@ -225,14 +211,7 @@ class VerificationExecutor:
                 details=VerificationDetails(file_path=path),
                 diagnostic=diagnostic,
             )
-        except (
-            WorkspaceError,
-            OSError,
-            RuntimeError,
-            AttributeError,
-            TypeError,
-            ValueError,
-        ) as error:
+        except (WorkspaceError, OSError) as error:
             return self._error_result(criterion, error)
 
     @staticmethod
