@@ -280,3 +280,28 @@ def test_created_task_can_transition_to_failed(tmp_path):
         manager.transition(task_id, TaskStatus.FAILED)
 
         assert manager.get_state(task_id) == TaskStatus.FAILED
+
+
+
+def test_review_history_persists_after_reopening_database(tmp_path):
+    database = tmp_path / "agent.db"
+    manager = StateManager(database)
+    task_id = manager.create_task("Review this task")
+    manager.record_review(
+        task_id=task_id,
+        revision=1,
+        plan={"summary": "Revised", "steps": []},
+        approved=False,
+        feedback="Add a test",
+    )
+    manager.close()
+
+    manager = StateManager(database)
+    history = manager.get_review_history(task_id)
+
+    assert len(history) == 1
+    assert history[0]["revision"] == 1
+    assert history[0]["plan"]["summary"] == "Revised"
+    assert history[0]["approved"] is False
+    assert history[0]["feedback"] == "Add a test"
+    manager.close()
