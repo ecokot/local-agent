@@ -22,7 +22,7 @@ class Planner(Protocol):
 
 
 class Executor(Protocol):
-    def execute(self, plan: Plan) -> ExecutionResult:
+    def execute(self, task_id: str, plan: Plan) -> ExecutionResult:
         ...
 
 
