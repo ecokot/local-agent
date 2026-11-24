@@ -3,7 +3,12 @@ from local_agent.approval_manager import ApprovalManager
 from local_agent.models.agent import ExecutionResult, ReviewResult
 from local_agent.models.approval import Approval, ApprovalStatus
 from local_agent.models.plan import Plan
-from local_agent.execution.verification import (CriterionVerificationResult, VerificationExecutor, VerificationReport, VerificationStatus)
+from local_agent.execution.verification import (
+    CriterionVerificationResult,
+    VerificationExecutor,
+    VerificationReport,
+    VerificationStatus,
+)
 from local_agent.state_manager import StateManager, TaskStatus
 
 
@@ -95,16 +100,15 @@ class Orchestrator:
 
         try:
             review = self.reviewer.review(plan, result)
+            # Keep the Python-produced report authoritative if Reviewer
+            # returns a modified result object.
+            review = review.model_copy(
+                update={"verification_report": verification_report}
+            )
         except Exception:
             self.state_manager.transition(task_id, TaskStatus.FAILED)
             self.clear_execution_progress(task_id)
             raise
-
-        # Keep the Python-produced report authoritative if Reviewer returns
-        # a modified result object.
-        review = review.model_copy(
-            update={"verification_report": verification_report}
-        )
 
         revision = approval.parameters.get("revision", 0)
         try:
