@@ -3,10 +3,36 @@ import pytest
 from local_agent.agents.stubs import StubExecutor, StubPlanner, StubReviewer
 from local_agent.approval_manager import ApprovalManager
 from local_agent.models.agent import ExecutionResult, ReviewResult
+from local_agent.execution.verification import CriterionVerificationResult, VerificationDetails, VerificationReport, VerificationStatus
 from local_agent.models.approval import Approval, ApprovalStatus
 from local_agent.models.plan import Plan
 from local_agent.orchestrator import Orchestrator
 from local_agent.state_manager import StateManager, TaskStatus
+
+
+class PassingVerificationExecutor:
+    def __init__(self):
+        self.calls = 0
+
+    def execute(self, plan):
+        self.calls += 1
+        results = tuple(
+            CriterionVerificationResult(
+                criterion_id=criterion.id,
+                criterion_type=criterion.type,
+                required=criterion.required,
+                passed=True,
+                status=VerificationStatus.PASSED,
+                details=VerificationDetails(),
+            )
+            for criterion in plan.verification_criteria
+        )
+        return VerificationReport(
+            results=results,
+            all_required_passed=all(
+                result.passed for result in results if result.required
+            ),
+        )
 
 
 class RecordingExecutor(StubExecutor):
@@ -61,6 +87,7 @@ def test_prepare_task_creates_pending_plan_approval(tmp_path) -> None:
             planner=StubPlanner(),
             executor=StubExecutor(),
             reviewer=StubReviewer(),
+            verification_executor=PassingVerificationExecutor(),
         )
 
         approval = orchestrator.prepare_task("Create a test file")
@@ -126,6 +153,7 @@ def test_approved_plan_is_passed_to_executor_and_reviewer(tmp_path) -> None:
             planner=StubPlanner(),
             executor=executor,
             reviewer=reviewer,
+            verification_executor=PassingVerificationExecutor(),
         )
 
         approval = orchestrator.prepare_task("Create a test file")
@@ -209,6 +237,7 @@ def test_reviewer_exception_marks_task_failed(tmp_path) -> None:
             planner=StubPlanner(),
             executor=StubExecutor(),
             reviewer=RaisingReviewer(),
+            verification_executor=PassingVerificationExecutor(),
         )
 
         approval = orchestrator.prepare_task("Create a test file")
@@ -269,13 +298,15 @@ class RejectingReviewer(StubReviewer):
 
 
 def _make_orchestrator(state_manager, approval_manager, *, planner=None,
-                       executor=None, reviewer=None):
+                       executor=None, reviewer=None,
+                       verification_executor=None):
     return Orchestrator(
         state_manager=state_manager,
         approval_manager=approval_manager,
         planner=planner or StubPlanner(),
         executor=executor or CountingExecutor(),
         reviewer=reviewer or StubReviewer(),
+        verification_executor=verification_executor or PassingVerificationExecutor(),
     )
 
 
@@ -416,6 +447,7 @@ def test_reviewer_rejection_requests_revised_plan_approval(
         orchestrator = _make_orchestrator(
             state_manager, approval_manager,
             reviewer=RejectingReviewer(),
+            verification_executor=PassingVerificationExecutor(),
         )
         approval = orchestrator.prepare_task("Reviewer rejects")
         approval_manager.approve(approval.approval_id)
