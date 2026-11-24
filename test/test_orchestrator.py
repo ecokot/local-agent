@@ -218,11 +218,12 @@ def test_rejected_plan_cancels_task(tmp_path) -> None:
             connection=state_manager.connection,
             state_manager=state_manager,
     ) as approval_manager:
+        executor = CountingExecutor()
         orchestrator = Orchestrator(
             state_manager=state_manager,
             approval_manager=approval_manager,
             planner=StubPlanner(),
-            executor=StubExecutor(),
+            executor=executor,
             reviewer=StubReviewer(),
         )
         approval = orchestrator.prepare_task("Create a test file")
@@ -231,6 +232,7 @@ def test_rejected_plan_cancels_task(tmp_path) -> None:
 
         assert rejected.status == ApprovalStatus.REJECTED
         assert state_manager.get_state(approval.task_id) == TaskStatus.CANCELLED
+        assert executor.calls == 0
 
 
 class RaisingPlanner(StubPlanner):
