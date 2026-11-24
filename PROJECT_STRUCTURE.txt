@@ -1,21 +1,20 @@
-﻿ЭТАП: Этап 6Б
-КОММИТ: bac916c
-ДАТА: 2026-11-23 15:33:43
+ЭТАП: Этап 8.А
+КОММИТ: 8194f7b
+ДАТА: 2026-11-24
 
 СТРУКТУРА ПРОЕКТА
 local-agent
-+--- data
-|   +--- traces
-|   |   \--- f77ae6fd-9826-4a9d-a2cc-7db6cc8c1468.jsonl
-|   \--- agent.db
 +--- docs
+|   +--- DEVELOPMENT_HISTORY.md
 |   +--- EXECUTION_BACKEND.md
-|   \--- EXECUTION_ISOLATION_RESEARCH.md
+|   +--- EXECUTION_ISOLATION_RESEARCH.md
+|   \--- PROJECT_STRUCTURE_SCRIPT.md
 +--- src
 |   +--- local_agent
 |   |   +--- agents
 |   |   |   +--- protocols.py
-|   |   |   \--- stubs.py
+|   |   |   +--- stubs.py
+|   |   |   \--- tool_executor_adapter.py
 |   |   +--- execution
 |   |   |   +--- tools
 |   |   |   |   +--- __init__.py
@@ -73,7 +72,9 @@ local-agent
 |   +--- test_run_command.py
 |   +--- test_run_tests.py
 |   +--- test_state_manager.py
+|   +--- test_tool_executor_adapter.py
 |   +--- test_tool_executor.py
+|   +--- test_user_interface.py
 |   +--- test_workspace.py
 |   \--- test_write_file.py
 +--- .gitignore
