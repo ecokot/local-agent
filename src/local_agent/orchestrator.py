@@ -1,14 +1,14 @@
 from local_agent.agents.protocols import Executor, Planner, Reviewer
 from local_agent.approval_manager import ApprovalManager
-from local_agent.models.agent import ExecutionResult, ReviewResult
-from local_agent.models.approval import Approval, ApprovalStatus
-from local_agent.models.plan import Plan
 from local_agent.execution.verification import (
     CriterionVerificationResult,
     VerificationExecutor,
     VerificationReport,
     VerificationStatus,
 )
+from local_agent.models.agent import ExecutionResult, ReviewResult
+from local_agent.models.approval import Approval, ApprovalStatus
+from local_agent.models.plan import Plan
 from local_agent.state_manager import StateManager, TaskStatus
 
 
