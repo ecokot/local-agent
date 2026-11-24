@@ -25,7 +25,7 @@ def test_stub_executor_returns_success() -> None:
         Task(task_id="test-task", description="Test", status="CREATED")
     )
 
-    result = executor.execute(plan)
+    result = executor.execute("test-task", plan)
 
     assert result.success is True
     assert "Executed 1 steps" in result.output
