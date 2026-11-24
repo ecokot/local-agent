@@ -1,4 +1,7 @@
-from local_agent.agents.stubs import StubPlanner\nfrom local_agent.agents.tool_executor_adapter import ToolExecutorAdapter\nfrom local_agent.models.agent import ReviewResult\nfrom local_agent.orchestrator import Orchestrator
+from local_agent.agents.stubs import StubPlanner
+from local_agent.agents.tool_executor_adapter import ToolExecutorAdapter
+from local_agent.models.agent import ReviewResult
+from local_agent.orchestrator import Orchestrator
 from local_agent.approval_manager import ApprovalManager
 from local_agent.execution.recorder import ExecutionRecorder
 from local_agent.execution.tool_executor import ToolExecutor
