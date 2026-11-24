@@ -88,7 +88,6 @@ def test_prepare_task_creates_pending_plan_approval(tmp_path) -> None:
             executor=StubExecutor(),
             reviewer=StubReviewer(),
             verification_executor=PassingVerificationExecutor(),
-            verification_executor=PassingVerificationExecutor(),
         )
 
         approval = orchestrator.prepare_task("Create a test file")
@@ -155,7 +154,6 @@ def test_approved_plan_is_passed_to_executor_and_reviewer(tmp_path) -> None:
             planner=StubPlanner(),
             executor=executor,
             reviewer=reviewer,
-            verification_executor=PassingVerificationExecutor(),
             verification_executor=PassingVerificationExecutor(),
         )
 
@@ -242,7 +240,6 @@ def test_reviewer_exception_marks_task_failed(tmp_path) -> None:
             planner=StubPlanner(),
             executor=StubExecutor(),
             reviewer=RaisingReviewer(),
-            verification_executor=PassingVerificationExecutor(),
             verification_executor=PassingVerificationExecutor(),
         )
 
@@ -454,7 +451,6 @@ def test_reviewer_rejection_requests_revised_plan_approval(
         orchestrator = _make_orchestrator(
             state_manager, approval_manager,
             reviewer=RejectingReviewer(),
-            verification_executor=PassingVerificationExecutor(),
             verification_executor=PassingVerificationExecutor(),
         )
         approval = orchestrator.prepare_task("Reviewer rejects")
