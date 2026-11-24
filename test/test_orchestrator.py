@@ -12,9 +12,9 @@ class RecordingExecutor(StubExecutor):
     def __init__(self) -> None:
         self.received_plan = None
 
-    def execute(self, plan):
+    def execute(self, task_id, plan):
         self.received_plan = plan
-        return super().execute(plan)
+        return super().execute(task_id, plan)
 
 
 class RecordingReviewer(StubReviewer):
@@ -29,7 +29,7 @@ class RecordingReviewer(StubReviewer):
 
 
 class FailingExecutor(StubExecutor):
-    def execute(self, plan):
+    def execute(self, task_id, plan):
         return ExecutionResult(
             success=False,
             output="Execution failed",
@@ -38,7 +38,7 @@ class FailingExecutor(StubExecutor):
 
 
 class RaisingExecutor(StubExecutor):
-    def execute(self, plan):
+    def execute(self, task_id, plan):
         raise RuntimeError("Executor failed")
 
 
@@ -242,9 +242,9 @@ class CountingExecutor(StubExecutor):
     def __init__(self) -> None:
         self.calls = 0
 
-    def execute(self, plan):
+    def execute(self, task_id, plan):
         self.calls += 1
-        return super().execute(plan)
+        return super().execute(task_id, plan)
 
 
 class ApprovingReviewer(StubReviewer):
