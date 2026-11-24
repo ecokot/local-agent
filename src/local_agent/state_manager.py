@@ -1,7 +1,9 @@
+import json
 import sqlite3
+from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import ClassVar, Self
+from typing import Any, ClassVar, Self
 from uuid import uuid4
 
 from local_agent.models import Task
@@ -70,7 +72,21 @@ class StateManager:
                 description TEXT NOT NULL,
                 status TEXT NOT NULL
             )
-            """)
+            """
+        )
+        self.connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS review_history (
+                review_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                task_id TEXT NOT NULL REFERENCES tasks(task_id),
+                revision INTEGER NOT NULL CHECK (revision >= 0),
+                plan_json TEXT NOT NULL,
+                approved INTEGER NOT NULL CHECK (approved IN (0, 1)),
+                feedback TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
         self.connection.commit()
 
     def create_task(self, description: str) -> str:
@@ -186,6 +202,67 @@ class StateManager:
             """,
             (new_status.value, task_id),
         )
+
+
+    def record_review(
+            self,
+            task_id: str,
+            revision: int,
+            plan: dict[str, Any],
+            approved: bool,
+            feedback: str,
+    ) -> None:
+        if (
+            not isinstance(revision, int)
+            or isinstance(revision, bool)
+            or revision < 0
+        ):
+            raise ValueError(
+                "Review revision must be a non-negative integer"
+            )
+        if not isinstance(approved, bool):
+            raise TypeError("Review approval must be a boolean")
+
+        self.get_task(task_id)
+        self.connection.execute(
+            """
+            INSERT INTO review_history (
+                task_id, revision, plan_json, approved, feedback, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                task_id,
+                revision,
+                json.dumps(plan, ensure_ascii=False, sort_keys=True),
+                int(approved),
+                feedback,
+                datetime.now(UTC).isoformat(),
+            ),
+        )
+        self.connection.commit()
+
+    def get_review_history(self, task_id: str) -> list[dict]:
+        rows = self.connection.execute(
+            """
+            SELECT revision, plan_json, approved, feedback, created_at
+            FROM review_history
+            WHERE task_id = ?
+            ORDER BY review_id
+            """,
+            (task_id,),
+        ).fetchall()
+
+        return [
+            {
+                "revision": row["revision"],
+                "plan": json.loads(row["plan_json"]),
+                "approved": bool(row["approved"]),
+                "feedback": row["feedback"],
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
 
     def close(self) -> None:
         if self._owns_connection:

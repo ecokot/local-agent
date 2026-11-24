@@ -3,7 +3,8 @@ import pytest
 from local_agent.agents.stubs import StubExecutor, StubPlanner, StubReviewer
 from local_agent.approval_manager import ApprovalManager
 from local_agent.models.agent import ExecutionResult, ReviewResult
-from local_agent.models.approval import ApprovalStatus
+from local_agent.models.approval import Approval, ApprovalStatus
+from local_agent.models.plan import Plan
 from local_agent.orchestrator import Orchestrator
 from local_agent.state_manager import StateManager, TaskStatus
 
@@ -396,7 +397,9 @@ def test_multiple_tasks_can_wait_for_approval(tmp_path) -> None:
 
 
 
-def test_reviewer_rejection_marks_successful_execution_failed(tmp_path) -> None:
+def test_reviewer_rejection_requests_revised_plan_approval(
+        tmp_path,
+) -> None:
     with StateManager(tmp_path / "agent.db") as state_manager, ApprovalManager(
             connection=state_manager.connection,
             state_manager=state_manager,
@@ -408,7 +411,178 @@ def test_reviewer_rejection_marks_successful_execution_failed(tmp_path) -> None:
         approval = orchestrator.prepare_task("Reviewer rejects")
         approval_manager.approve(approval.approval_id)
 
-        review = orchestrator.execute_approved_plan(approval.approval_id)
+        revised_approval = orchestrator.execute_approved_plan(
+            approval.approval_id
+        )
 
-        assert review.approved is False
-        assert state_manager.get_state(approval.task_id) == TaskStatus.FAILED
+        assert isinstance(revised_approval, Approval)
+        assert revised_approval.status == ApprovalStatus.PENDING
+        assert revised_approval.parameters["revision"] == 1
+        assert state_manager.get_state(approval.task_id) == (
+            TaskStatus.WAITING_FOR_APPROVAL
+        )
+
+
+
+class RevisingPlanner(StubPlanner):
+    def __init__(self):
+        self.received_feedback = []
+
+    def revise_plan(self, task, previous_plan, feedback):
+        self.received_feedback.append(feedback)
+        return Plan(
+            summary=f"Revision {len(self.received_feedback)}",
+            steps=previous_plan.steps,
+        )
+
+
+class SequenceReviewer:
+    def __init__(self, results):
+        self.results = iter(results)
+
+    def review(self, plan, result):
+        return next(self.results)
+
+
+def test_reviewer_feedback_creates_new_pending_plan_approval(tmp_path):
+    with StateManager(tmp_path / "agent.db") as state, ApprovalManager(
+        connection=state.connection, state_manager=state
+    ) as approvals:
+        executor = CountingExecutor()
+        planner = RevisingPlanner()
+        reviewer = SequenceReviewer([
+            ReviewResult(approved=False, feedback="Add validation"),
+            ReviewResult(approved=True, feedback="Looks good"),
+        ])
+        orchestrator = _make_orchestrator(
+            state, approvals, planner=planner,
+            executor=executor, reviewer=reviewer,
+        )
+
+        first = orchestrator.prepare_task("Build feature")
+        approvals.approve(first.approval_id)
+        revised = orchestrator.execute_approved_plan(first.approval_id)
+
+        assert revised.action_type == "PLAN_APPROVAL"
+        assert revised.status == ApprovalStatus.PENDING
+        assert revised.parameters["revision"] == 1
+        assert planner.received_feedback == ["Add validation"]
+        assert executor.calls == 1
+        assert state.get_state(first.task_id) == TaskStatus.WAITING_FOR_APPROVAL
+
+        approvals.approve(revised.approval_id)
+        final_review = orchestrator.execute_approved_plan(revised.approval_id)
+
+        assert final_review.approved is True
+        assert executor.calls == 2
+        assert state.get_state(first.task_id) == TaskStatus.SUCCEEDED
+        history = state.get_review_history(first.task_id)
+        assert [entry["feedback"] for entry in history] == [
+            "Add validation", "Looks good"
+        ]
+
+
+def test_revised_plan_is_cancelled_when_user_rejects_it(tmp_path):
+    with StateManager(tmp_path / "agent.db") as state, ApprovalManager(
+        connection=state.connection, state_manager=state
+    ) as approvals:
+        executor = CountingExecutor()
+        orchestrator = _make_orchestrator(
+            state, approvals, executor=executor,
+            planner=RevisingPlanner(),
+            reviewer=RejectingReviewer(),
+        )
+
+        initial = orchestrator.prepare_task("Build feature")
+        approvals.approve(initial.approval_id)
+        revised = orchestrator.execute_approved_plan(initial.approval_id)
+
+        orchestrator.reject_plan(revised.approval_id)
+
+        assert executor.calls == 1
+        assert state.get_state(initial.task_id) == TaskStatus.CANCELLED
+
+
+def test_plan_revision_limit_stops_after_two_revisions(tmp_path):
+    with StateManager(tmp_path / "agent.db") as state, ApprovalManager(
+        connection=state.connection, state_manager=state
+    ) as approvals:
+        executor = CountingExecutor()
+        planner = RevisingPlanner()
+        orchestrator = _make_orchestrator(
+            state, approvals, executor=executor,
+            planner=planner, reviewer=RejectingReviewer(),
+        )
+
+        approval = orchestrator.prepare_task("Build feature")
+        task_id = approval.task_id
+
+        for expected_revision in (1, 2):
+            approvals.approve(approval.approval_id)
+            approval = orchestrator.execute_approved_plan(
+                approval.approval_id
+            )
+            assert approval.parameters["revision"] == expected_revision
+            assert approval.status == ApprovalStatus.PENDING
+
+        approvals.approve(approval.approval_id)
+        final_review = orchestrator.execute_approved_plan(
+            approval.approval_id
+        )
+
+        assert isinstance(final_review, ReviewResult)
+        assert final_review.approved is False
+        assert len(planner.received_feedback) == 2
+        assert executor.calls == 3
+        assert state.get_state(task_id) == TaskStatus.FAILED
+        assert len(state.get_review_history(task_id)) == 3
+
+
+def test_revised_plan_approval_is_required_before_second_execution(tmp_path):
+    with StateManager(tmp_path / "agent.db") as state, ApprovalManager(
+        connection=state.connection, state_manager=state
+    ) as approvals:
+        executor = CountingExecutor()
+        orchestrator = _make_orchestrator(
+            state, approvals, executor=executor,
+            planner=RevisingPlanner(), reviewer=RejectingReviewer(),
+        )
+
+        initial = orchestrator.prepare_task("Build feature")
+        approvals.approve(initial.approval_id)
+        revised = orchestrator.execute_approved_plan(initial.approval_id)
+
+        with pytest.raises(ValueError, match="not been approved"):
+            orchestrator.execute_approved_plan(revised.approval_id)
+
+        assert executor.calls == 1
+        assert state.get_state(initial.task_id) == TaskStatus.WAITING_FOR_APPROVAL
+
+
+
+class RaisingRevisingPlanner(StubPlanner):
+    def revise_plan(self, task, previous_plan, feedback):
+        raise RuntimeError("Plan revision failed")
+
+
+def test_revision_planner_exception_marks_task_failed_and_keeps_feedback(
+    tmp_path,
+):
+    with StateManager(tmp_path / "agent.db") as state, ApprovalManager(
+        connection=state.connection, state_manager=state
+    ) as approvals:
+        orchestrator = _make_orchestrator(
+            state, approvals,
+            planner=RaisingRevisingPlanner(),
+            reviewer=RejectingReviewer(),
+        )
+        initial = orchestrator.prepare_task("Planner revision failure")
+        approvals.approve(initial.approval_id)
+
+        with pytest.raises(RuntimeError, match="Plan revision failed"):
+            orchestrator.execute_approved_plan(initial.approval_id)
+
+        assert state.get_state(initial.task_id) == TaskStatus.FAILED
+        history = state.get_review_history(initial.task_id)
+        assert len(history) == 1
+        assert history[0]["feedback"] == "Rejected by reviewer"

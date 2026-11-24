@@ -7,6 +7,8 @@ from local_agent.state_manager import StateManager, TaskStatus
 
 
 class Orchestrator:
+    MAX_PLAN_REVISIONS = 2
+
     def __init__(
             self,
             state_manager: StateManager,
@@ -31,7 +33,10 @@ class Orchestrator:
             return self.approval_manager.request_approval(
                 task_id=task_id,
                 action_type="PLAN_APPROVAL",
-                parameters={"plan": plan.model_dump(mode="json")},
+                parameters={
+                    "plan": plan.model_dump(mode="json"),
+                    "revision": 0,
+                },
             )
         except Exception:
             if self.state_manager.get_state(task_id) == TaskStatus.CREATED:
@@ -41,7 +46,7 @@ class Orchestrator:
     def execute_approved_plan(
             self,
             approval_id: str,
-    ) -> ReviewResult | ExecutionResult:
+    ) -> Approval | ReviewResult | ExecutionResult:
         approval = self.approval_manager.get_approval(approval_id)
 
         if approval.action_type != "PLAN_APPROVAL":
@@ -60,6 +65,7 @@ class Orchestrator:
             result = self.executor.execute(task_id, plan)
         except Exception:
             self.state_manager.transition(task_id, TaskStatus.FAILED)
+            self.clear_execution_progress(task_id)
             raise
 
         if result.waiting_for_approval:
@@ -69,21 +75,60 @@ class Orchestrator:
 
         if not result.success:
             self.state_manager.transition(task_id, TaskStatus.FAILED)
+            self.clear_execution_progress(task_id)
             return result
 
         try:
             review = self.reviewer.review(plan, result)
         except Exception:
             self.state_manager.transition(task_id, TaskStatus.FAILED)
+            self.clear_execution_progress(task_id)
             raise
 
-        final_status = (
-            TaskStatus.SUCCEEDED
-            if review.approved
-            else TaskStatus.FAILED
-        )
-        self.state_manager.transition(task_id, final_status)
-        return review
+        revision = approval.parameters.get("revision", 0)
+        try:
+            self.state_manager.record_review(
+                task_id=task_id,
+                revision=revision,
+                plan=plan.model_dump(mode="json"),
+                approved=review.approved,
+                feedback=review.feedback,
+            )
+        except Exception:
+            self.state_manager.transition(task_id, TaskStatus.FAILED)
+            self.clear_execution_progress(task_id)
+            raise
+
+        if review.approved:
+            self.state_manager.transition(task_id, TaskStatus.SUCCEEDED)
+            self.clear_execution_progress(task_id)
+            return review
+
+        if revision >= self.MAX_PLAN_REVISIONS:
+            self.state_manager.transition(task_id, TaskStatus.FAILED)
+            self.clear_execution_progress(task_id)
+            return review
+
+        try:
+            task = self.state_manager.get_task(task_id)
+            revised_plan = self.planner.revise_plan(
+                task,
+                plan,
+                review.feedback,
+            )
+            return self.approval_manager.request_approval(
+                task_id=task_id,
+                action_type="PLAN_APPROVAL",
+                parameters={
+                    "plan": revised_plan.model_dump(mode="json"),
+                    "revision": revision + 1,
+                },
+            )
+        except Exception:
+            if self.state_manager.get_state(task_id) == TaskStatus.RUNNING:
+                self.state_manager.transition(task_id, TaskStatus.FAILED)
+            self.clear_execution_progress(task_id)
+            raise
 
     def reject_plan(self, approval_id: str) -> Approval:
         approval = self.approval_manager.get_approval(approval_id)
@@ -101,9 +146,15 @@ class Orchestrator:
             raise ValueError("Task is not waiting for plan approval")
 
         rejected = self.approval_manager.reject(approval_id)
+        self.clear_execution_progress(approval.task_id)
 
         self.state_manager.transition(
             approval.task_id,
             TaskStatus.CANCELLED,
         )
         return rejected
+
+    def clear_execution_progress(self, task_id: str) -> None:
+        clear_progress = getattr(self.executor, "clear_progress", None)
+        if callable(clear_progress):
+            clear_progress(task_id)
