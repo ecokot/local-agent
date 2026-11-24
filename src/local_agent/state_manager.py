@@ -221,7 +221,7 @@ class StateManager:
                 "Review revision must be a non-negative integer"
             )
         if not isinstance(approved, bool):
-            raise ValueError("Review approval must be a boolean")
+            raise TypeError("Review approval must be a boolean")
 
         self.get_task(task_id)
         self.connection.execute(
