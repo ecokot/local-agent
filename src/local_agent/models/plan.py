@@ -1,5 +1,5 @@
 from pathlib import PurePosixPath, PureWindowsPath
-from typing import Annotated, Any, Literal, Union
+from typing import Annotated, Any, Literal
 
 from pydantic import (
     BaseModel,
@@ -81,7 +81,7 @@ class FileExistsCriterion(_VerificationCriterionBase):
 
 
 VerificationCriterion = Annotated[
-    Union[PytestCriterion, RuffCriterion, FileExistsCriterion],
+    PytestCriterion | RuffCriterion | FileExistsCriterion,
     Field(discriminator="type"),
 ]
 
