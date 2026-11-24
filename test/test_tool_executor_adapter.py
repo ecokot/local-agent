@@ -270,3 +270,79 @@ def test_user_interface_handles_plan_and_action_approvals(
         assert len(tools["create_file"].calls) == 1
     finally:
         close_environment(environment)
+
+
+
+class RevisingListPlanner:
+    def create_plan(self, task):
+        return Plan(
+            summary="Initial",
+            steps=[
+                {
+                    "description": "List root",
+                    "action": "list_directory",
+                    "parameters": {"path": ".", "max_entries": 10},
+                }
+            ],
+        )
+
+    def revise_plan(self, task, previous_plan, feedback):
+        return Plan(
+            summary="Revised",
+            steps=[
+                previous_plan.steps[0],
+                {
+                    "description": "List a subdirectory",
+                    "action": "list_directory",
+                    "parameters": {"path": "src", "max_entries": 10},
+                },
+            ],
+        )
+
+
+class RejectThenApproveReviewer:
+    def __init__(self):
+        self.calls = 0
+
+    def review(self, plan, result):
+        self.calls += 1
+        if self.calls == 1:
+            return ReviewResult(
+                approved=False,
+                feedback="Inspect the source directory too",
+            )
+        return ReviewResult(approved=True)
+
+
+def test_revised_plan_reuses_completed_steps_without_running_them_twice(
+    tmp_path,
+    monkeypatch,
+):
+    environment = build_environment(tmp_path)
+    state, approvals, recorder, tools, adapter, _ = environment
+
+    try:
+        reviewer = RejectThenApproveReviewer()
+        orchestrator = Orchestrator(
+            state_manager=state,
+            approval_manager=approvals,
+            planner=RevisingListPlanner(),
+            executor=adapter,
+            reviewer=reviewer,
+        )
+        answers = iter(["y", "y"])
+        monkeypatch.setattr("builtins.input", lambda _: next(answers))
+
+        UserInterface(orchestrator, approvals)._run_task("Inspect source")
+
+        task = state.get_tasks()[-1]
+        assert task.status == TaskStatus.SUCCEEDED
+        assert len(tools["list_directory"].calls) == 2
+        assert tools["list_directory"].calls == [
+            {"path": ".", "max_entries": 10},
+            {"path": "src", "max_entries": 10},
+        ]
+        assert len(recorder.get_executions_for_task(task.task_id)) == 2
+        assert len(state.get_review_history(task.task_id)) == 2
+    finally:
+        close_environment(environment)
