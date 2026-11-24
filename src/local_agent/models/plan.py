@@ -95,10 +95,16 @@ class Plan(BaseModel):
     verification_criteria: list[VerificationCriterion] = Field(min_length=1)
 
     @model_validator(mode="after")
-    def validate_unique_criterion_ids(self) -> "Plan":
+    def validate_verification_criteria(self) -> "Plan":
         criterion_ids = [
             criterion.id for criterion in self.verification_criteria
         ]
         if len(criterion_ids) != len(set(criterion_ids)):
             raise ValueError("verification criterion IDs must be unique")
+        if not any(
+            criterion.required for criterion in self.verification_criteria
+        ):
+            raise ValueError(
+                "at least one verification criterion must be required"
+            )
         return self

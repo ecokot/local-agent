@@ -231,6 +231,63 @@ def test_changed_plan_is_rejected_while_execution_is_suspended(tmp_path):
 
 
 
+def test_changed_criteria_are_rejected_while_execution_is_suspended(
+    tmp_path,
+):
+    environment = build_environment(tmp_path)
+    _, _, _, tools, adapter, task_id = environment
+
+    try:
+        original = Plan(
+            summary="Create file",
+            verification_criteria=[
+                {
+                    "id": "tests",
+                    "type": "pytest",
+                    "description": "Run the project test suite",
+                    "parameters": {},
+                }
+            ],
+            steps=[
+                {
+                    "description": "Create file",
+                    "action": "create_file",
+                    "parameters": {"path": "result.txt", "content": "hello"},
+                }
+            ],
+        )
+        changed = Plan(
+            summary="Create file",
+            verification_criteria=[
+                {
+                    "id": "tests",
+                    "type": "pytest",
+                    "description": "Run the updated project test suite",
+                    "parameters": {},
+                }
+            ],
+            steps=[
+                {
+                    "description": "Create file",
+                    "action": "create_file",
+                    "parameters": {"path": "result.txt", "content": "hello"},
+                }
+            ],
+        )
+
+        waiting = adapter.execute(task_id, original)
+        result = adapter.execute(task_id, changed)
+
+        assert waiting.waiting_for_approval is True
+        assert waiting.pending_approval_id is not None
+        assert result.success is False
+        assert result.waiting_for_approval is False
+        assert "plan changed" in result.errors[0].lower()
+        assert tools["create_file"].calls == []
+    finally:
+        close_environment(environment)
+
+
 class RecordingReviewer:
     def __init__(self):
         self.result = None

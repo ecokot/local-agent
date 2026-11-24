@@ -177,6 +177,23 @@ def test_plan_rejects_empty_verification_criteria() -> None:
         )
 
 
+def test_plan_rejects_only_optional_verification_criteria() -> None:
+    with pytest.raises(ValidationError, match="at least one.*required"):
+        Plan(
+            summary="Only optional checks",
+            steps=[make_plan().steps[0]],
+            verification_criteria=[
+                {
+                    "id": "lint",
+                    "type": "ruff",
+                    "description": "Run Ruff",
+                    "required": False,
+                    "parameters": {},
+                }
+            ],
+        )
+
+
 def test_plan_rejects_duplicate_criterion_ids() -> None:
     criterion = make_plan().verification_criteria[0]
     with pytest.raises(ValidationError, match="must be unique"):
