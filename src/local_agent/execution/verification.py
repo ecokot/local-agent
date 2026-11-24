@@ -10,6 +10,7 @@ from local_agent.models.plan import (
     Plan,
     PytestCriterion,
     RuffCriterion,
+    VerificationCriterion,
 )
 
 RUFF_COMMAND = ("uv", "run", "ruff", "check", ".")
@@ -74,7 +75,7 @@ class VerificationExecutor:
         self._workspace = workspace
 
     def execute(self, plan: Plan) -> VerificationReport:
-        """Выполняет все критерии плана, не прерываясь из-за ошибки одного из них."""
+        """Выполняет все критерии, не прерываясь из-за ошибки одного из них."""
 
         if not isinstance(plan, Plan):
             raise TypeError("plan must be a Plan instance")
@@ -94,7 +95,10 @@ class VerificationExecutor:
             all_required_passed=all_required_passed,
         )
 
-    def _execute_criterion(self, criterion) -> CriterionVerificationResult:
+    def _execute_criterion(
+        self,
+        criterion: VerificationCriterion,
+    ) -> CriterionVerificationResult:
         if isinstance(criterion, PytestCriterion):
             return self._execute_pytest(criterion)
 
@@ -104,14 +108,9 @@ class VerificationExecutor:
         if isinstance(criterion, FileExistsCriterion):
             return self._execute_file_exists(criterion)
 
-        return CriterionVerificationResult(
-            criterion_id=criterion.id,
-            criterion_type=criterion.type,
-            required=criterion.required,
-            passed=False,
-            status=VerificationStatus.ERROR,
-            details=VerificationDetails(),
-            diagnostic="Unsupported verification criterion type",
+        return self._error_result(
+            criterion,
+            TypeError("Unsupported verification criterion type"),
         )
 
     def _execute_pytest(
@@ -120,33 +119,31 @@ class VerificationExecutor:
     ) -> CriterionVerificationResult:
         try:
             result = self._run_tests_tool.execute()
+            passed = result.exit_code == 0 and not result.timed_out
+            status = self._command_status(passed, result.timed_out)
+
+            return CriterionVerificationResult(
+                criterion_id=criterion.id,
+                criterion_type=criterion.type,
+                required=criterion.required,
+                passed=passed,
+                status=status,
+                details=VerificationDetails(
+                    command=result.command,
+                    exit_code=result.exit_code,
+                    stdout=result.stdout,
+                    stderr=result.stderr,
+                    timed_out=result.timed_out,
+                    stdout_truncated=result.stdout_truncated,
+                    stderr_truncated=result.stderr_truncated,
+                ),
+                diagnostic=self._command_diagnostic(
+                    status=status,
+                    exit_code=result.exit_code,
+                ),
+            )
         except Exception as error:
             return self._error_result(criterion, error)
-
-        passed = result.exit_code == 0 and not result.timed_out
-        status = self._command_status(passed, result.timed_out)
-        diagnostic = self._command_diagnostic(
-            status=status,
-            exit_code=result.exit_code,
-        )
-
-        return CriterionVerificationResult(
-            criterion_id=criterion.id,
-            criterion_type=criterion.type,
-            required=criterion.required,
-            passed=passed,
-            status=status,
-            details=VerificationDetails(
-                command=result.command,
-                exit_code=result.exit_code,
-                stdout=result.stdout,
-                stderr=result.stderr,
-                timed_out=result.timed_out,
-                stdout_truncated=result.stdout_truncated,
-                stderr_truncated=result.stderr_truncated,
-            ),
-            diagnostic=diagnostic,
-        )
 
     def _execute_ruff(
         self,
@@ -154,33 +151,31 @@ class VerificationExecutor:
     ) -> CriterionVerificationResult:
         try:
             result = self._run_command_tool.execute(RUFF_COMMAND)
+            passed = result.exit_code == 0 and not result.timed_out
+            status = self._command_status(passed, result.timed_out)
+
+            return CriterionVerificationResult(
+                criterion_id=criterion.id,
+                criterion_type=criterion.type,
+                required=criterion.required,
+                passed=passed,
+                status=status,
+                details=VerificationDetails(
+                    command=result.command,
+                    exit_code=result.exit_code,
+                    stdout=result.stdout,
+                    stderr=result.stderr,
+                    timed_out=result.timed_out,
+                    stdout_truncated=result.stdout_truncated,
+                    stderr_truncated=result.stderr_truncated,
+                ),
+                diagnostic=self._command_diagnostic(
+                    status=status,
+                    exit_code=result.exit_code,
+                ),
+            )
         except Exception as error:
             return self._error_result(criterion, error)
-
-        passed = result.exit_code == 0 and not result.timed_out
-        status = self._command_status(passed, result.timed_out)
-        diagnostic = self._command_diagnostic(
-            status=status,
-            exit_code=result.exit_code,
-        )
-
-        return CriterionVerificationResult(
-            criterion_id=criterion.id,
-            criterion_type=criterion.type,
-            required=criterion.required,
-            passed=passed,
-            status=status,
-            details=VerificationDetails(
-                command=result.command,
-                exit_code=result.exit_code,
-                stdout=result.stdout,
-                stderr=result.stderr,
-                timed_out=result.timed_out,
-                stdout_truncated=result.stdout_truncated,
-                stderr_truncated=result.stderr_truncated,
-            ),
-            diagnostic=diagnostic,
-        )
 
     def _execute_file_exists(
         self,
@@ -191,29 +186,30 @@ class VerificationExecutor:
                 criterion.parameters.path
             )
             passed = path.is_file()
-        except Exception as error:
-            return self._error_result(criterion, error)
-
-        if passed:
-            status = VerificationStatus.PASSED
             diagnostic = None
-        else:
-            status = VerificationStatus.FAILED
-            diagnostic = (
-                "Path exists but is not a regular file"
-                if path.exists()
-                else "File does not exist"
+            if not passed:
+                diagnostic = (
+                    "Path exists but is not a regular file"
+                    if path.exists()
+                    else "File does not exist"
+                )
+            status = (
+                VerificationStatus.PASSED
+                if passed
+                else VerificationStatus.FAILED
             )
 
-        return CriterionVerificationResult(
-            criterion_id=criterion.id,
-            criterion_type=criterion.type,
-            required=criterion.required,
-            passed=passed,
-            status=status,
-            details=VerificationDetails(file_path=path),
-            diagnostic=diagnostic,
-        )
+            return CriterionVerificationResult(
+                criterion_id=criterion.id,
+                criterion_type=criterion.type,
+                required=criterion.required,
+                passed=passed,
+                status=status,
+                details=VerificationDetails(file_path=path),
+                diagnostic=diagnostic,
+            )
+        except Exception as error:
+            return self._error_result(criterion, error)
 
     @staticmethod
     def _command_status(
@@ -239,7 +235,10 @@ class VerificationExecutor:
         return None
 
     @staticmethod
-    def _error_result(criterion, error: Exception) -> CriterionVerificationResult:
+    def _error_result(
+        criterion: VerificationCriterion,
+        error: Exception,
+    ) -> CriterionVerificationResult:
         return CriterionVerificationResult(
             criterion_id=criterion.id,
             criterion_type=criterion.type,
