@@ -345,6 +345,7 @@ def test_revised_plan_reuses_completed_steps_without_running_them_twice(
         ]
         assert len(recorder.get_executions_for_task(task.task_id)) == 2
         assert len(state.get_review_history(task.task_id)) == 2
+        assert task.task_id not in adapter._progress
     finally:
         close_environment(environment)
 
