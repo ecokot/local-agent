@@ -252,6 +252,11 @@ class ApprovingReviewer(StubReviewer):
         return ReviewResult(approved=True)
 
 
+class RejectingReviewer(StubReviewer):
+    def review(self, plan, result):
+        return ReviewResult(approved=False, feedback="Rejected by reviewer")
+
+
 def _make_orchestrator(state_manager, approval_manager, *, planner=None,
                        executor=None, reviewer=None):
     return Orchestrator(
@@ -397,7 +402,7 @@ def test_reviewer_rejection_marks_successful_execution_failed(tmp_path) -> None:
     ) as approval_manager:
         orchestrator = _make_orchestrator(
             state_manager, approval_manager,
-            reviewer=StubReviewer(approved=False),
+            reviewer=RejectingReviewer(),
         )
         approval = orchestrator.prepare_task("Reviewer rejects")
         approval_manager.approve(approval.approval_id)
