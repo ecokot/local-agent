@@ -119,7 +119,7 @@ def test_reject_changes_status(managers):
     )
 
 
-def test_rejected_request_can_be_created_again(managers):
+def test_rejected_action_marks_task_failed(managers):
     task_id, manager, _ = managers
 
     first = manager.request_approval(
@@ -127,12 +127,7 @@ def test_rejected_request_can_be_created_again(managers):
     )
     manager.reject(first.approval_id)
 
-    second = manager.request_approval(
-        task_id, "CREATE_FILE", {"path": "main.py"}
-    )
-
-    assert first.approval_id != second.approval_id
-    assert second.status == ApprovalStatus.PENDING
+    assert manager.get_approval(first.approval_id).status == ApprovalStatus.REJECTED
 
 
 def test_cannot_decide_approval_twice(managers):
@@ -328,7 +323,7 @@ def test_approve_resumes_task(managers):
     assert state_manager.get_state(task_id) == TaskStatus.RUNNING
 
 
-def test_reject_resumes_task(managers):
+def test_reject_marks_task_failed(managers):
     task_id, manager, state_manager = managers
 
     approval = manager.request_approval(
@@ -339,7 +334,7 @@ def test_reject_resumes_task(managers):
 
     manager.reject(approval.approval_id)
 
-    assert state_manager.get_state(task_id) == TaskStatus.RUNNING
+    assert state_manager.get_state(task_id) == TaskStatus.FAILED
 
 
 def test_request_approval_rolls_back_if_task_transition_fails(
@@ -435,7 +430,7 @@ def test_cancel_changes_status(managers):
 
     assert result.status == ApprovalStatus.CANCELLED
     assert result.decided_at is not None
-    assert state_manager.get_state(task_id) == TaskStatus.RUNNING
+    assert state_manager.get_state(task_id) == TaskStatus.CANCELLED
 
 
 def test_cancelled_request_cannot_be_created_again(managers):
@@ -459,7 +454,7 @@ def test_cancelled_request_cannot_be_created_again(managers):
         )
 
 
-def test_changed_parameters_allowed_after_cancellation(managers):
+def test_cancelled_task_cannot_request_changed_action(managers):
     task_id, manager, _ = managers
 
     first = manager.request_approval(
@@ -550,7 +545,7 @@ def test_cancelled_approval_cannot_be_approved(managers):
         manager.approve(approval.approval_id)
 
 
-def test_cancel_resumes_task_without_approving_action(managers):
+def test_cancel_marks_task_cancelled_without_approving_action(managers):
     task_id, manager, state_manager = managers
 
     approval = manager.request_approval(
@@ -561,7 +556,7 @@ def test_cancel_resumes_task_without_approving_action(managers):
 
     manager.cancel(approval.approval_id)
 
-    assert state_manager.get_state(task_id) == TaskStatus.RUNNING
+    assert state_manager.get_state(task_id) == TaskStatus.CANCELLED
     assert not manager.is_approved(
         task_id,
         "CREATE_FILE",
