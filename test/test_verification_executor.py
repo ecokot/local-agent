@@ -340,6 +340,20 @@ def test_unexpected_tool_exception_does_not_stop_next_criterion(tools):
     assert report.results[1].status is VerificationStatus.PASSED
 
 
+def test_invalid_tool_result_is_reported_and_next_check_runs(tools):
+    executor, pytest_tool, command_tool, _ = tools
+    pytest_tool.execute.return_value = None
+    command_tool.execute.return_value = make_command_result()
+
+    report = executor.execute(
+        make_plan([pytest_criterion(), ruff_criterion()])
+    )
+
+    assert report.results[0].status is VerificationStatus.ERROR
+    assert "AttributeError" in report.results[0].diagnostic
+    assert report.results[1].status is VerificationStatus.PASSED
+
+
 def test_rejects_non_plan_input(tools):
     executor, _, _, _ = tools
 
