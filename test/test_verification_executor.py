@@ -421,7 +421,7 @@ def test_workspace_error_becomes_error_and_next_criterion_runs(tools):
 
     failed, following = report.results
     assert failed.status is VerificationStatus.ERROR
-    assert failed.criterion_id == "artifact"
+    assert failed.criterion_id == "blocked"
     assert failed.criterion_type == "file_exists"
     assert failed.required is True
     assert "WorkspaceError" in failed.diagnostic
@@ -456,7 +456,7 @@ def test_file_system_os_error_becomes_error_and_next_criterion_runs(
 
     failed, following = report.results
     assert failed.status is VerificationStatus.ERROR
-    assert failed.criterion_id == "artifact"
+    assert failed.criterion_id == "blocked"
     assert failed.criterion_type == "file_exists"
     assert failed.required is True
     assert "PermissionError" in failed.diagnostic
