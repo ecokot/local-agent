@@ -231,3 +231,166 @@ def test_rejected_plan_cancels_task(tmp_path) -> None:
 
         assert rejected.status == ApprovalStatus.REJECTED
         assert state_manager.get_state(approval.task_id) == TaskStatus.CANCELLED
+
+
+class RaisingPlanner(StubPlanner):
+    def create_plan(self, task):
+        raise RuntimeError("Planner failed")
+
+
+class CountingExecutor(StubExecutor):
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def execute(self, plan):
+        self.calls += 1
+        return super().execute(plan)
+
+
+class ApprovingReviewer(StubReviewer):
+    def review(self, plan, result):
+        return ReviewResult(approved=True)
+
+
+def _make_orchestrator(state_manager, approval_manager, *, planner=None,
+                       executor=None, reviewer=None):
+    return Orchestrator(
+        state_manager=state_manager,
+        approval_manager=approval_manager,
+        planner=planner or StubPlanner(),
+        executor=executor or CountingExecutor(),
+        reviewer=reviewer or StubReviewer(),
+    )
+
+
+def test_planner_exception_marks_task_failed(tmp_path) -> None:
+    with StateManager(tmp_path / "agent.db") as state_manager, ApprovalManager(
+            connection=state_manager.connection,
+            state_manager=state_manager,
+    ) as approval_manager:
+        orchestrator = _make_orchestrator(
+            state_manager, approval_manager, planner=RaisingPlanner()
+        )
+
+        with pytest.raises(RuntimeError, match="Planner failed"):
+            orchestrator.prepare_task("Fail during planning")
+
+        tasks = state_manager.get_tasks()
+        assert len(tasks) == 1
+        assert tasks[0].status == TaskStatus.FAILED
+
+
+def test_approval_request_exception_marks_task_failed(
+        tmp_path, monkeypatch
+) -> None:
+    with StateManager(tmp_path / "agent.db") as state_manager, ApprovalManager(
+            connection=state_manager.connection,
+            state_manager=state_manager,
+    ) as approval_manager:
+        def fail_request(**kwargs):
+            raise RuntimeError("Approval request failed")
+
+        monkeypatch.setattr(approval_manager, "request_approval", fail_request)
+        orchestrator = _make_orchestrator(state_manager, approval_manager)
+
+        with pytest.raises(RuntimeError, match="Approval request failed"):
+            orchestrator.prepare_task("Fail during approval request")
+
+        tasks = state_manager.get_tasks()
+        assert len(tasks) == 1
+        assert tasks[0].status == TaskStatus.FAILED
+
+
+def test_execution_failure_is_not_overridden_by_approved_review(
+        tmp_path
+) -> None:
+    with StateManager(tmp_path / "agent.db") as state_manager, ApprovalManager(
+            connection=state_manager.connection,
+            state_manager=state_manager,
+    ) as approval_manager:
+        executor = FailingExecutor()
+        reviewer = ApprovingReviewer()
+        orchestrator = _make_orchestrator(
+            state_manager, approval_manager,
+            executor=executor, reviewer=reviewer,
+        )
+        approval = orchestrator.prepare_task("Execution must fail")
+        approval_manager.approve(approval.approval_id)
+
+        review = orchestrator.execute_approved_plan(approval.approval_id)
+
+        assert review.approved is True
+        assert state_manager.get_state(approval.task_id) == TaskStatus.FAILED
+
+
+@pytest.mark.parametrize(
+    "terminal_status",
+    [TaskStatus.SUCCEEDED, TaskStatus.FAILED, TaskStatus.CANCELLED],
+)
+def test_terminal_task_cannot_execute_again(tmp_path, terminal_status) -> None:
+    with StateManager(tmp_path / "agent.db") as state_manager, ApprovalManager(
+            connection=state_manager.connection,
+            state_manager=state_manager,
+    ) as approval_manager:
+        executor = CountingExecutor()
+        orchestrator = _make_orchestrator(
+            state_manager, approval_manager, executor=executor
+        )
+        approval = orchestrator.prepare_task("Terminal task")
+        approval_manager.approve(approval.approval_id)
+
+        if terminal_status == TaskStatus.CANCELLED:
+            # Exercise the normal rejection path, then verify execution is blocked.
+            # A rejected approval is also not APPROVED, so the state guard is
+            # covered separately by the explicit status check below.
+            approval_manager.reject(approval.approval_id)
+            state_manager.transition(approval.task_id, TaskStatus.CANCELLED)
+        else:
+            state_manager.transition(approval.task_id, terminal_status)
+
+        with pytest.raises(ValueError, match="Plan has not been approved|state"):
+            orchestrator.execute_approved_plan(approval.approval_id)
+
+        assert executor.calls == 0
+
+
+def test_wrong_approval_type_cannot_execute(tmp_path) -> None:
+    with StateManager(tmp_path / "agent.db") as state_manager, ApprovalManager(
+            connection=state_manager.connection,
+            state_manager=state_manager,
+    ) as approval_manager:
+        executor = CountingExecutor()
+        orchestrator = _make_orchestrator(
+            state_manager, approval_manager, executor=executor
+        )
+        task_id = state_manager.create_task("Wrong approval type")
+        approval = approval_manager.request_approval(
+            task_id=task_id,
+            action_type="OTHER_ACTION",
+            parameters={},
+        )
+        approval_manager.approve(approval.approval_id)
+
+        with pytest.raises(ValueError, match="not a plan approval"):
+            orchestrator.execute_approved_plan(approval.approval_id)
+
+        assert executor.calls == 0
+
+
+def test_multiple_tasks_can_wait_for_approval(tmp_path) -> None:
+    with StateManager(tmp_path / "agent.db") as state_manager, ApprovalManager(
+            connection=state_manager.connection,
+            state_manager=state_manager,
+    ) as approval_manager:
+        orchestrator = _make_orchestrator(state_manager, approval_manager)
+
+        first = orchestrator.prepare_task("First task")
+        second = orchestrator.prepare_task("Second task")
+
+        assert first.task_id != second.task_id
+        assert state_manager.get_state(first.task_id) == (
+            TaskStatus.WAITING_FOR_APPROVAL
+        )
+        assert state_manager.get_state(second.task_id) == (
+            TaskStatus.WAITING_FOR_APPROVAL
+        )
