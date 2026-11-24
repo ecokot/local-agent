@@ -338,14 +338,6 @@ class RevisingListPlanner:
     def revise_plan(self, task, previous_plan, feedback):
         return Plan(
             summary="Revised",
-            verification_criteria=[
-                {
-                    "id": "tests",
-                    "type": "pytest",
-                    "description": "Run the project test suite",
-                    "parameters": {},
-                }
-            ],
             steps=[
                 previous_plan.steps[0],
                 {
