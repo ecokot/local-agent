@@ -17,7 +17,7 @@ from local_agent.execution.verification import (
     VerificationExecutor,
     VerificationStatus,
 )
-from local_agent.execution.workspace import Workspace
+from local_agent.execution.workspace import Workspace, WorkspaceError
 from local_agent.models.plan import Plan
 
 
@@ -327,31 +327,138 @@ def test_model_criterion_data_cannot_supply_command_or_code(tools):
     command_tool.execute.assert_not_called()
 
 
-def test_unexpected_tool_exception_does_not_stop_next_criterion(tools):
+def test_unexpected_tool_exception_is_not_masked(tools):
     executor, pytest_tool, command_tool, _ = tools
     pytest_tool.execute.side_effect = RuntimeError("unexpected")
-    command_tool.execute.return_value = make_command_result()
 
-    report = executor.execute(
-        make_plan([pytest_criterion(), ruff_criterion()])
-    )
+    with pytest.raises(RuntimeError, match="unexpected"):
+        executor.execute(
+            make_plan([pytest_criterion(), ruff_criterion()])
+        )
 
-    assert report.results[0].status is VerificationStatus.ERROR
-    assert report.results[1].status is VerificationStatus.PASSED
+    command_tool.execute.assert_not_called()
 
 
-def test_invalid_tool_result_is_reported_and_next_check_runs(tools):
+def test_invalid_tool_result_is_not_masked(tools):
     executor, pytest_tool, command_tool, _ = tools
     pytest_tool.execute.return_value = None
-    command_tool.execute.return_value = make_command_result()
+
+    with pytest.raises(AttributeError):
+        executor.execute(
+            make_plan([pytest_criterion(), ruff_criterion()])
+        )
+
+    command_tool.execute.assert_not_called()
+
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        RunCommandError("Command execution failed"),
+        OSError("Process communication failed"),
+    ],
+    ids=["run-command-error", "os-error"],
+)
+@pytest.mark.parametrize(
+    "criterion_factory",
+    [pytest_criterion, ruff_criterion],
+    ids=["pytest", "ruff"],
+)
+def test_command_errors_become_error_and_next_criterion_runs(
+    tools,
+    error,
+    criterion_factory,
+):
+    executor, pytest_tool, command_tool, root = tools
+    (root / "artifact.txt").write_text("ok", encoding="utf-8")
+
+    if criterion_factory is pytest_criterion:
+        pytest_tool.execute.side_effect = error
+    else:
+        command_tool.execute.side_effect = error
 
     report = executor.execute(
-        make_plan([pytest_criterion(), ruff_criterion()])
+        make_plan([criterion_factory(), file_criterion("artifact.txt")])
     )
 
-    assert report.results[0].status is VerificationStatus.ERROR
-    assert "AttributeError" in report.results[0].diagnostic
-    assert report.results[1].status is VerificationStatus.PASSED
+    failed = report.results[0]
+    following = report.results[1]
+    assert failed.status is VerificationStatus.ERROR
+    assert failed.passed is False
+    assert failed.criterion_id == (
+        "tests" if criterion_factory is pytest_criterion else "lint"
+    )
+    assert failed.criterion_type == (
+        "pytest" if criterion_factory is pytest_criterion else "ruff"
+    )
+    assert failed.required is True
+    assert error.__class__.__name__ in failed.diagnostic
+    assert following.status is VerificationStatus.PASSED
+    assert report.all_required_passed is False
+
+
+def test_workspace_error_becomes_error_and_next_criterion_runs(tools):
+    executor, _, _, root = tools
+    target = root / "artifact.txt"
+    target.write_text("ok", encoding="utf-8")
+    executor._workspace.resolve_path = Mock(
+        side_effect=[
+            WorkspaceError("Workspace path cannot be resolved"),
+            target,
+        ]
+    )
+
+    report = executor.execute(
+        make_plan([
+            file_criterion("blocked.txt"),
+            file_criterion("artifact.txt"),
+        ])
+    )
+
+    failed, following = report.results
+    assert failed.status is VerificationStatus.ERROR
+    assert failed.criterion_id == "artifact"
+    assert failed.criterion_type == "file_exists"
+    assert failed.required is True
+    assert "WorkspaceError" in failed.diagnostic
+    assert following.status is VerificationStatus.PASSED
+    assert report.all_required_passed is False
+
+
+def test_file_system_os_error_becomes_error_and_next_criterion_runs(
+    tools,
+    monkeypatch,
+):
+    executor, _, _, root = tools
+    (root / "artifact.txt").write_text("ok", encoding="utf-8")
+    original_is_file = Path.is_file
+    calls = 0
+
+    def fail_first_is_file(path):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise PermissionError("Access denied")
+        return original_is_file(path)
+
+    monkeypatch.setattr(Path, "is_file", fail_first_is_file)
+
+    report = executor.execute(
+        make_plan([
+            file_criterion("blocked.txt"),
+            file_criterion("artifact.txt"),
+        ])
+    )
+
+    failed, following = report.results
+    assert failed.status is VerificationStatus.ERROR
+    assert failed.criterion_id == "artifact"
+    assert failed.criterion_type == "file_exists"
+    assert failed.required is True
+    assert "PermissionError" in failed.diagnostic
+    assert following.status is VerificationStatus.PASSED
+    assert report.all_required_passed is False
 
 
 def test_rejects_non_plan_input(tools):
