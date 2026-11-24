@@ -82,26 +82,24 @@ def test_task_cannot_execute_without_plan_approval(tmp_path) -> None:
             connection=state_manager.connection,
             state_manager=state_manager,
     ) as approval_manager:
+        executor = CountingExecutor()
         orchestrator = Orchestrator(
             state_manager=state_manager,
             approval_manager=approval_manager,
             planner=StubPlanner(),
-            executor=StubExecutor(),
+            executor=executor,
             reviewer=StubReviewer(),
         )
 
         approval = orchestrator.prepare_task("Create a test file")
 
-        try:
+        with pytest.raises(ValueError, match="not been approved"):
             orchestrator.execute_approved_plan(approval.approval_id)
-        except ValueError:
-            pass
-        else:
-            raise AssertionError("Unapproved plan must not be executed")
 
         assert state_manager.get_state(approval.task_id) == (
             TaskStatus.WAITING_FOR_APPROVAL
         )
+        assert executor.calls == 0
 
 
 def test_approved_plan_is_passed_to_executor_and_reviewer(tmp_path) -> None:
