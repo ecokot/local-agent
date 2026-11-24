@@ -147,6 +147,7 @@ class VerificationExecutor:
             )
         except (
             RunCommandError,
+            OSError,
             RuntimeError,
             AttributeError,
             TypeError,
@@ -185,6 +186,7 @@ class VerificationExecutor:
             )
         except (
             RunCommandError,
+            OSError,
             RuntimeError,
             AttributeError,
             TypeError,
