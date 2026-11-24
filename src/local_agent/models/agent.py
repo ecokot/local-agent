@@ -2,6 +2,8 @@ from typing import Any, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from local_agent.execution.verification import VerificationReport
+
 
 class ExecutionResult(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
@@ -12,6 +14,7 @@ class ExecutionResult(BaseModel):
     waiting_for_approval: bool = False
     pending_approval_id: str | None = None
     step_results: list[dict[str, Any]] = Field(default_factory=list)
+    verification_report: VerificationReport | None = None
 
     @model_validator(mode="after")
     def validate_approval_wait(self) -> Self:
@@ -36,6 +39,7 @@ class ReviewResult(BaseModel):
 
     approved: bool
     feedback: str = ""
+    verification_report: VerificationReport | None = None
 
     @model_validator(mode="after")
     def feedback_required_for_rejection(self) -> Self:

@@ -1,8 +1,10 @@
 from local_agent.approval_manager import ApprovalManager
+from local_agent.execution.verification import VerificationReport
 from local_agent.models.agent import ExecutionResult, ReviewResult
 from local_agent.models.approval import Approval
 from local_agent.models.plan import Plan
 from local_agent.orchestrator import Orchestrator
+from local_agent.state_manager import TaskStatus
 
 
 class UserInterface:
@@ -95,8 +97,36 @@ class UserInterface:
                 continue
 
             if isinstance(result, ReviewResult):
-                print(f"\nРезультат проверки: {result.approved}")
-                print(f"Комментарий: {result.feedback}")
+                task_status = self.orchestrator.state_manager.get_state(
+                    plan_approval.task_id
+                )
+                print(
+                    "\nРешение Reviewer: "
+                    f"{'одобрено' if result.approved else 'не одобрено'}"
+                )
+                print(f"Статус задачи: {task_status.value}")
+                print(f"Комментарий Reviewer: {result.feedback}")
+
+                if result.verification_report is not None:
+                    self._show_verification_report(
+                        result.verification_report
+                    )
+
+                if task_status is TaskStatus.FAILED:
+                    report = result.verification_report
+                    if (
+                        result.approved
+                        and report is not None
+                        and not report.all_required_passed
+                    ):
+                        print(
+                            "\nОшибка выполнения: Reviewer одобрил результат, "
+                            "но обязательные объективные проверки не пройдены."
+                        )
+                    else:
+                        print("\nЗадача завершилась с ошибкой.")
+                elif task_status is TaskStatus.SUCCEEDED:
+                    print("\nЗадача успешно завершена.")
                 return
 
             print("\nВыполнение не завершено успешно.")
@@ -105,6 +135,27 @@ class UserInterface:
             for error in result.errors:
                 print(f"Ошибка: {error}")
             return
+
+    @staticmethod
+    def _show_verification_report(report: VerificationReport) -> None:
+        print("\nРезультаты объективных проверок:")
+        for check in report.results:
+            requirement = (
+                "обязательный" if check.required else "необязательный"
+            )
+            print(
+                f"   [{check.criterion_id}] "
+                f"Тип: {check.criterion_type}; "
+                f"обязательность: {requirement}; "
+                f"статус: {check.status.value}"
+            )
+            if check.diagnostic:
+                print(f"      Диагностика: {check.diagnostic}")
+
+        print(
+            "Обязательные проверки: "
+            f"{'пройдены' if report.all_required_passed else 'не пройдены'}"
+        )
 
     @staticmethod
     def _show_plan(plan_approval: Approval) -> None:

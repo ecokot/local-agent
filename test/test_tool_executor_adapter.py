@@ -4,11 +4,56 @@ from local_agent.approval_manager import ApprovalManager
 from local_agent.execution.models import ToolExecutionResult, ToolExecutionStatus
 from local_agent.execution.recorder import ExecutionRecorder
 from local_agent.execution.tool_executor import ToolExecutor
+from local_agent.execution.verification import (
+    CriterionVerificationResult,
+    VerificationDetails,
+    VerificationReport,
+    VerificationStatus,
+)
 from local_agent.models.agent import ReviewResult
 from local_agent.models.plan import Plan
 from local_agent.orchestrator import Orchestrator
 from local_agent.state_manager import StateManager, TaskStatus
 from local_agent.user_interface import UserInterface
+
+
+class PassingVerificationExecutor:
+    def execute(self, plan):
+        results = tuple(
+            CriterionVerificationResult(
+                criterion_id=criterion.id,
+                criterion_type=criterion.type,
+                required=criterion.required,
+                passed=True,
+                status=VerificationStatus.PASSED,
+                details=VerificationDetails(),
+            )
+            for criterion in plan.verification_criteria
+        )
+        return VerificationReport(
+            results=results,
+            all_required_passed=True,
+        )
+
+
+class FailingVerificationExecutor:
+    def execute(self, plan):
+        results = tuple(
+            CriterionVerificationResult(
+                criterion_id=criterion.id,
+                criterion_type=criterion.type,
+                required=criterion.required,
+                passed=False,
+                status=VerificationStatus.FAILED,
+                details=VerificationDetails(),
+                diagnostic="Required file does not exist",
+            )
+            for criterion in plan.verification_criteria
+        )
+        return VerificationReport(
+            results=results,
+            all_required_passed=False,
+        )
 
 
 class FakeTool:
@@ -311,6 +356,7 @@ def test_orchestrator_resumes_after_action_approval_and_reviews_real_results(
             planner=StubPlanner(),
             executor=adapter,
             reviewer=reviewer,
+            verification_executor=PassingVerificationExecutor(),
         )
 
         plan_approval = orchestrator.prepare_task("Create a file")
@@ -357,6 +403,7 @@ def test_user_interface_handles_plan_and_action_approvals(
             planner=StubPlanner(),
             executor=adapter,
             reviewer=RecordingReviewer(),
+            verification_executor=PassingVerificationExecutor(),
         )
         answers = iter(["y", "y"])
         monkeypatch.setattr("builtins.input", lambda _: next(answers))
@@ -369,6 +416,42 @@ def test_user_interface_handles_plan_and_action_approvals(
     finally:
         close_environment(environment)
 
+
+
+
+def test_user_interface_reports_required_verification_failure_after_reviewer_approval(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    environment = build_environment(tmp_path)
+    state, approvals, _, _, adapter, _task_id = environment
+
+    try:
+        orchestrator = Orchestrator(
+            state_manager=state,
+            approval_manager=approvals,
+            planner=StubPlanner(),
+            executor=adapter,
+            reviewer=RecordingReviewer(),
+            verification_executor=FailingVerificationExecutor(),
+        )
+        answers = iter(["y", "y"])
+        monkeypatch.setattr("builtins.input", lambda _: next(answers))
+
+        UserInterface(orchestrator, approvals)._run_task("Create a file")
+
+        output = capsys.readouterr().out
+        task = state.get_tasks()[-1]
+
+        assert "Решение Reviewer: одобрено" in output
+        assert "Статус задачи: FAILED" in output
+        assert "Диагностика: Required file does not exist" in output
+        assert "Ошибка выполнения:" in output
+        assert "Задача успешно завершена" not in output
+        assert task.status is TaskStatus.FAILED
+    finally:
+        close_environment(environment)
 
 
 class RevisingListPlanner:
@@ -436,6 +519,7 @@ def test_revised_plan_reuses_completed_steps_without_running_them_twice(
             planner=RevisingListPlanner(),
             executor=adapter,
             reviewer=reviewer,
+            verification_executor=PassingVerificationExecutor(),
         )
         answers = iter(["y", "y"])
         monkeypatch.setattr("builtins.input", lambda _: next(answers))

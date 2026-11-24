@@ -3,6 +3,11 @@ from pathlib import Path
 
 from local_agent.agents.stubs import get_stub_agents
 from local_agent.approval_manager import ApprovalManager
+from local_agent.execution.backend import ExecutionBackend
+from local_agent.execution.tools.run_command import RunCommandTool
+from local_agent.execution.tools.run_tests import RunTestsTool
+from local_agent.execution.verification import VerificationExecutor
+from local_agent.execution.workspace import Workspace
 from local_agent.orchestrator import Orchestrator
 from local_agent.state_manager import StateManager
 from local_agent.user_interface import UserInterface
@@ -23,6 +28,15 @@ def main() -> None:
         ) as approval_manager,
     ):
         planner, executor, reviewer = get_stub_agents()
+        workspace = Workspace(project_root)
+        run_command_tool = RunCommandTool(
+            ExecutionBackend(workspace=workspace)
+        )
+        verification_executor = VerificationExecutor(
+            run_tests_tool=RunTestsTool(run_command_tool),
+            run_command_tool=run_command_tool,
+            workspace=workspace,
+        )
 
         orchestrator = Orchestrator(
             state_manager=state_manager,
@@ -30,6 +44,7 @@ def main() -> None:
             planner=planner,
             executor=executor,
             reviewer=reviewer,
+            verification_executor=verification_executor,
         )
 
         interface = UserInterface(
