@@ -1,3 +1,4 @@
+import json
 from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
@@ -124,6 +125,9 @@ class ToolExecutorAdapter:
             progress.completed_steps.append(
                 _CompletedStep(signature=signature, result=deepcopy(result))
             )
+            progress.reused_step_indexes.add(
+                len(progress.completed_steps) - 1
+            )
             progress.step_results.append(result)
             progress.next_step += 1
 
@@ -136,8 +140,6 @@ class ToolExecutorAdapter:
 
     @staticmethod
     def _step_signature(step: PlanStep) -> tuple[str, str]:
-        import json
-
         return (
             step.action,
             json.dumps(
