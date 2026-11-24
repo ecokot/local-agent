@@ -397,7 +397,10 @@ def test_is_approved_false_prevents_execution(
     assert result.status == ToolExecutionStatus.FAILED
     assert "Approval verification failed" in result.error
     assert not tools["create_file"].calls
-    assert execution_recorder.get_executions_for_task(task_id) == []
+    executions = execution_recorder.get_executions_for_task(task_id)
+
+    assert len(executions) == 1
+    assert execution_recorder.get_status(executions[0].execution_id) == "FAILED"
 
 
 def test_is_approved_exception_prevents_execution(
@@ -425,4 +428,7 @@ def test_is_approved_exception_prevents_execution(
     assert result.status == ToolExecutionStatus.FAILED
     assert "Approval database unavailable" in result.error
     assert not tools["create_file"].calls
-    assert execution_recorder.get_executions_for_task(task_id) == []
+    executions = execution_recorder.get_executions_for_task(task_id)
+
+    assert len(executions) == 1
+    assert execution_recorder.get_status(executions[0].execution_id) == "FAILED"

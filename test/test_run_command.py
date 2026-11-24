@@ -1,31 +1,74 @@
-import sys
-
 import pytest
 
+from local_agent.execution.backend import (
+    ExecutionBackendError,
+    ExecutionResult,
+)
 from local_agent.execution.tools.run_command import (
     MAX_OUTPUT_SIZE,
     RunCommandError,
     RunCommandTool,
 )
-from local_agent.execution.workspace import Workspace
+
+
+class FakeExecutionBackend:
+    """Тестовая замена ExecutionBackend без запуска процессов."""
+
+    def __init__(self, result=None, error=None):
+        self.result = result or ExecutionResult(
+            stdout="",
+            stderr="",
+            exit_code=0,
+            timed_out=False,
+        )
+        self.error = error
+        self.commands = []
+
+    def execute(self, command):
+        self.commands.append(command)
+
+        if self.error is not None:
+            raise self.error
+
+        return self.result
 
 
 @pytest.fixture
-def workspace(tmp_path):
-    return Workspace(tmp_path)
+def backend():
+    return FakeExecutionBackend()
 
 
 @pytest.fixture
-def tool(workspace):
-    return RunCommandTool(workspace)
+def tool(backend):
+    return RunCommandTool(backend)
 
 
-def python_command(code):
-    return [sys.executable, "-c", code]
+def test_passes_command_to_backend(tool, backend):
+    command = ["python", "-c", "print('hello')"]
+
+    tool.execute(command)
+
+    assert backend.commands == [tuple(command)]
+
+
+def test_accepts_tuple_command(tool, backend):
+    command = ("python", "-c", "print('hello')")
+
+    result = tool.execute(command)
+
+    assert backend.commands == [command]
+    assert result.command == command
 
 
 def test_returns_stdout(tool):
-    result = tool.execute(python_command("print('hello')"))
+    tool._backend.result = ExecutionResult(
+        stdout="hello\n",
+        stderr="",
+        exit_code=0,
+        timed_out=False,
+    )
+
+    result = tool.execute(["python", "script.py"])
 
     assert result.stdout == "hello\n"
     assert result.stderr == ""
@@ -34,82 +77,95 @@ def test_returns_stdout(tool):
 
 
 def test_returns_stderr(tool):
-    result = tool.execute(
-        python_command("import sys; print('error', file=sys.stderr)")
+    tool._backend.result = ExecutionResult(
+        stdout="",
+        stderr="error\n",
+        exit_code=0,
+        timed_out=False,
     )
+
+    result = tool.execute(["python", "script.py"])
 
     assert result.stderr == "error\n"
     assert result.exit_code == 0
 
 
 def test_returns_nonzero_exit_code(tool):
-    result = tool.execute(python_command("raise SystemExit(5)"))
+    tool._backend.result = ExecutionResult(
+        stdout="",
+        stderr="failure",
+        exit_code=5,
+        timed_out=False,
+    )
+
+    result = tool.execute(["python", "script.py"])
 
     assert result.exit_code == 5
     assert result.timed_out is False
 
 
-def test_runs_command_in_workspace_directory(tool, workspace):
-    result = tool.execute(
-        python_command("import os; print(os.getcwd())")
+def test_returns_timeout(tool):
+    tool._backend.result = ExecutionResult(
+        stdout="started",
+        stderr="",
+        exit_code=None,
+        timed_out=True,
     )
 
-    assert result.stdout.strip() == str(workspace.root)
-    assert result.exit_code == 0
-
-
-def test_accepts_tuple_command(tool):
-    command = (sys.executable, "-c", "print('hello')")
-
-    result = tool.execute(command)
-
-    assert result.command == command
-    assert result.stdout == "hello\n"
-
-
-def test_times_out_command(workspace):
-    tool = RunCommandTool(workspace, timeout_seconds=0.1)
-
-    result = tool.execute(
-        python_command("import time; time.sleep(2)")
-    )
+    result = tool.execute(["python", "script.py"])
 
     assert result.timed_out is True
     assert result.exit_code is None
+    assert result.stdout == "started"
 
 
-def test_preserves_output_before_timeout(workspace):
-    tool = RunCommandTool(workspace, timeout_seconds=0.5)
-
-    result = tool.execute(
-        python_command(
-            "import time; print('started', flush=True); time.sleep(2)"
-        )
+def test_normalizes_newlines(tool):
+    tool._backend.result = ExecutionResult(
+        stdout="first\r\nsecond\rthird",
+        stderr="",
+        exit_code=0,
+        timed_out=False,
     )
 
-    assert result.timed_out is True
-    assert "started" in result.stdout
+    result = tool.execute(["python", "script.py"])
+
+    assert result.stdout == "first\nsecond\nthird"
 
 
 def test_truncates_stdout(tool):
-    code = f"print('a' * {MAX_OUTPUT_SIZE + 100}, end='')"
+    tool._backend.result = ExecutionResult(
+        stdout="a" * (MAX_OUTPUT_SIZE + 100),
+        stderr="",
+        exit_code=0,
+        timed_out=False,
+    )
 
-    result = tool.execute(python_command(code))
+    result = tool.execute(["python", "script.py"])
 
     assert len(result.stdout.encode("utf-8")) == MAX_OUTPUT_SIZE
     assert result.stdout_truncated is True
 
 
 def test_truncates_stderr(tool):
-    code = (
-        "import sys; "
-        f"print('a' * {MAX_OUTPUT_SIZE + 100}, file=sys.stderr, end='')"
+    tool._backend.result = ExecutionResult(
+        stdout="",
+        stderr="a" * (MAX_OUTPUT_SIZE + 100),
+        exit_code=0,
+        timed_out=False,
     )
 
-    result = tool.execute(python_command(code))
+    result = tool.execute(["python", "script.py"])
 
     assert len(result.stderr.encode("utf-8")) == MAX_OUTPUT_SIZE
     assert result.stderr_truncated is True
+
+
+def test_handles_backend_error(backend):
+    backend.error = ExecutionBackendError("Docker unavailable")
+    tool = RunCommandTool(backend)
+
+    with pytest.raises(RunCommandError, match="Cannot execute command"):
+        tool.execute(["python", "script.py"])
 
 
 def test_rejects_non_list_or_tuple_command(tool):
@@ -129,22 +185,9 @@ def test_rejects_empty_executable(tool):
 
 def test_rejects_non_string_arguments(tool):
     with pytest.raises(RunCommandError, match="must be strings"):
-        tool.execute([sys.executable, 123])
+        tool.execute(["python", 123])
 
 
 def test_rejects_nul_in_arguments(tool):
     with pytest.raises(RunCommandError, match="NUL"):
-        tool.execute([sys.executable, "\x00"])
-
-
-def test_rejects_invalid_timeout(workspace):
-    with pytest.raises(RunCommandError, match="positive finite"):
-        RunCommandTool(workspace, timeout_seconds=0)
-
-    with pytest.raises(RunCommandError, match="positive finite"):
-        RunCommandTool(workspace, timeout_seconds=float("inf"))
-
-
-def test_returns_error_for_missing_executable(tool):
-    with pytest.raises(RunCommandError, match="Cannot execute command"):
-        tool.execute(["this_executable_does_not_exist_123456"])
+        tool.execute(["python", "\x00"])

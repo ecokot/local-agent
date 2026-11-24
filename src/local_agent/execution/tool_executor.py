@@ -1,4 +1,3 @@
-
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
@@ -157,24 +156,6 @@ class ToolExecutor:
                     f"Action is not approved: {approval.status}"
                 )
 
-            try:
-                is_approved = self._approval_manager.is_approved(
-                    task_id=task_id,
-                    action_type=definition.action_type,
-                    parameters=parameters,
-                )
-            except (ValueError, TypeError, RuntimeError, OSError) as error:
-                return self._failed(
-                    "Approval verification failed. "
-                    f"The tool was not executed: {error}"
-                )
-
-            if not is_approved:
-                return self._failed(
-                    "Approval verification failed. "
-                    "The tool was not executed."
-                )
-
         try:
             execution_id = self._execution_recorder.start_execution(
                 task_id
@@ -186,6 +167,30 @@ class ToolExecutor:
             )
 
         try:
+            if definition.requires_approval:
+                try:
+                    is_approved = self._approval_manager.is_approved(
+                        task_id=task_id,
+                        action_type=definition.action_type,
+                        parameters=parameters,
+                    )
+                except (
+                    ValueError,
+                    TypeError,
+                    RuntimeError,
+                    OSError,
+                ) as error:
+                    raise RuntimeError(
+                        "Approval verification failed. "
+                        f"The tool was not executed: {error}"
+                    ) from error
+
+                if not is_approved:
+                    raise RuntimeError(
+                        "Approval verification failed. "
+                        "The tool was not executed."
+                    )
+
             result = definition.execute(**parameters)
         except (
                 ValueError,
