@@ -212,6 +212,7 @@ def test_orchestrator_resumes_after_action_approval_and_reviews_real_results(
         )
 
         plan_approval = orchestrator.prepare_task("Create a file")
+        task_id = plan_approval.task_id
         approvals.approve(plan_approval.approval_id)
 
         first_result = orchestrator.execute_approved_plan(
