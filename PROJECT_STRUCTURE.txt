@@ -1,5 +1,5 @@
-ЭТАП: Этап 8.А
-КОММИТ: 8194f7b
+ЭТАП: Этап 8.Б
+КОММИТ: 0eb6591
 ДАТА: 2026-11-24
 
 СТРУКТУРА ПРОЕКТА
@@ -30,6 +30,7 @@ local-agent
 |   |   |   +--- models.py
 |   |   |   +--- recorder.py
 |   |   |   +--- tool_executor.py
+|   |   |   +--- verification.py
 |   |   |   \--- workspace.py
 |   |   +--- models
 |   |   |   +--- __init__.py
@@ -75,6 +76,7 @@ local-agent
 |   +--- test_tool_executor_adapter.py
 |   +--- test_tool_executor.py
 |   +--- test_user_interface.py
+|   +--- test_verification_executor.py
 |   +--- test_workspace.py
 |   \--- test_write_file.py
 +--- .gitignore
