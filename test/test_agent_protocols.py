@@ -8,6 +8,14 @@ class FakePlanner:
     def create_plan(self, task: Task) -> Plan:
         return Plan(
             summary="Test plan",
+            verification_criteria=[
+                {
+                    "id": "tests",
+                    "type": "pytest",
+                    "description": "Run the project test suite",
+                    "parameters": {},
+                }
+            ],
             steps=[
                 {
                     "description": "Create file",
@@ -26,6 +34,7 @@ class FakePlanner:
         return Plan(
             summary=f"Revised plan for: {task.description}",
             steps=previous_plan.steps,
+            verification_criteria=previous_plan.verification_criteria,
         )
 
 
@@ -57,7 +66,15 @@ def test_fake_executor_matches_protocol() -> None:
     executor: Executor = FakeExecutor()
     plan = Plan(
         summary="Test plan",
-        steps=[
+        verification_criteria=[
+                {
+                    "id": "tests",
+                    "type": "pytest",
+                    "description": "Run the project test suite",
+                    "parameters": {},
+                }
+            ],
+            steps=[
             {
                 "description": "Create file",
                 "action": "create_file",
@@ -75,7 +92,15 @@ def test_fake_reviewer_matches_protocol() -> None:
     reviewer: Reviewer = FakeReviewer()
     plan = Plan(
         summary="Test plan",
-        steps=[
+        verification_criteria=[
+                {
+                    "id": "tests",
+                    "type": "pytest",
+                    "description": "Run the project test suite",
+                    "parameters": {},
+                }
+            ],
+            steps=[
             {
                 "description": "Create file",
                 "action": "create_file",

@@ -66,6 +66,14 @@ def test_executes_plan_steps_in_order_and_returns_real_results(tmp_path):
     try:
         plan = Plan(
             summary="Inspect and create",
+            verification_criteria=[
+                {
+                    "id": "tests",
+                    "type": "pytest",
+                    "description": "Run the project test suite",
+                    "parameters": {},
+                }
+            ],
             steps=[
                 {
                     "description": "List files",
@@ -110,6 +118,14 @@ def test_rejected_action_marks_task_failed_and_never_runs_tool(tmp_path):
     try:
         plan = Plan(
             summary="Create file",
+            verification_criteria=[
+                {
+                    "id": "tests",
+                    "type": "pytest",
+                    "description": "Run the project test suite",
+                    "parameters": {},
+                }
+            ],
             steps=[
                 {
                     "description": "Create file",
@@ -135,6 +151,14 @@ def test_unknown_tool_fails_without_running_any_tool(tmp_path):
     try:
         plan = Plan(
             summary="Unknown tool",
+            verification_criteria=[
+                {
+                    "id": "tests",
+                    "type": "pytest",
+                    "description": "Run the project test suite",
+                    "parameters": {},
+                }
+            ],
             steps=[
                 {
                     "description": "Run unknown tool",
@@ -160,6 +184,14 @@ def test_changed_plan_is_rejected_while_execution_is_suspended(tmp_path):
     try:
         original = Plan(
             summary="Original",
+            verification_criteria=[
+                {
+                    "id": "tests",
+                    "type": "pytest",
+                    "description": "Run the project test suite",
+                    "parameters": {},
+                }
+            ],
             steps=[
                 {
                     "description": "Create file",
@@ -170,6 +202,14 @@ def test_changed_plan_is_rejected_while_execution_is_suspended(tmp_path):
         )
         changed = Plan(
             summary="Changed",
+            verification_criteria=[
+                {
+                    "id": "tests",
+                    "type": "pytest",
+                    "description": "Run the project test suite",
+                    "parameters": {},
+                }
+            ],
             steps=[
                 {
                     "description": "Create another file",
@@ -189,6 +229,63 @@ def test_changed_plan_is_rejected_while_execution_is_suspended(tmp_path):
     finally:
         close_environment(environment)
 
+
+
+def test_changed_criteria_are_rejected_while_execution_is_suspended(
+    tmp_path,
+):
+    environment = build_environment(tmp_path)
+    _, _, _, tools, adapter, task_id = environment
+
+    try:
+        original = Plan(
+            summary="Create file",
+            verification_criteria=[
+                {
+                    "id": "tests",
+                    "type": "pytest",
+                    "description": "Run the project test suite",
+                    "parameters": {},
+                }
+            ],
+            steps=[
+                {
+                    "description": "Create file",
+                    "action": "create_file",
+                    "parameters": {"path": "result.txt", "content": "hello"},
+                }
+            ],
+        )
+        changed = Plan(
+            summary="Create file",
+            verification_criteria=[
+                {
+                    "id": "tests",
+                    "type": "pytest",
+                    "description": "Run the updated project test suite",
+                    "parameters": {},
+                }
+            ],
+            steps=[
+                {
+                    "description": "Create file",
+                    "action": "create_file",
+                    "parameters": {"path": "result.txt", "content": "hello"},
+                }
+            ],
+        )
+
+        waiting = adapter.execute(task_id, original)
+        result = adapter.execute(task_id, changed)
+
+        assert waiting.waiting_for_approval is True
+        assert waiting.pending_approval_id is not None
+        assert result.success is False
+        assert result.waiting_for_approval is False
+        assert "plan changed" in result.errors[0].lower()
+        assert tools["create_file"].calls == []
+    finally:
+        close_environment(environment)
 
 
 class RecordingReviewer:
@@ -278,6 +375,14 @@ class RevisingListPlanner:
     def create_plan(self, task):
         return Plan(
             summary="Initial",
+            verification_criteria=[
+                {
+                    "id": "tests",
+                    "type": "pytest",
+                    "description": "Run the project test suite",
+                    "parameters": {},
+                }
+            ],
             steps=[
                 {
                     "description": "List root",
@@ -298,6 +403,7 @@ class RevisingListPlanner:
                     "parameters": {"path": "src", "max_entries": 10},
                 },
             ],
+            verification_criteria=previous_plan.verification_criteria,
         )
 
 
@@ -377,7 +483,15 @@ def test_changed_step_invalidates_reuse_of_later_dependent_results():
     adapter = ToolExecutorAdapter(tool_executor)
     original = Plan(
         summary="Write A and read it",
-        steps=[
+        verification_criteria=[
+                {
+                    "id": "tests",
+                    "type": "pytest",
+                    "description": "Run the project test suite",
+                    "parameters": {},
+                }
+            ],
+            steps=[
             {
                 "description": "Write A",
                 "action": "write_file",
@@ -392,7 +506,15 @@ def test_changed_step_invalidates_reuse_of_later_dependent_results():
     )
     revised = Plan(
         summary="Write B and read it",
-        steps=[
+        verification_criteria=[
+                {
+                    "id": "tests",
+                    "type": "pytest",
+                    "description": "Run the project test suite",
+                    "parameters": {},
+                }
+            ],
+            steps=[
             {
                 "description": "Write B",
                 "action": "write_file",

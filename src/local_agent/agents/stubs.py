@@ -15,6 +15,14 @@ class StubPlanner:
                     "parameters": {"path": "test.txt", "content": "test"},
                 }
             ],
+            verification_criteria=[
+                {
+                    "id": "created-file",
+                    "type": "file_exists",
+                    "description": "Убедиться, что файл test.txt создан",
+                    "parameters": {"path": "test.txt"},
+                }
+            ],
         )
 
     def revise_plan(
@@ -26,7 +34,9 @@ class StubPlanner:
         return Plan(
             summary=f"Revised plan for: {task.description}",
             steps=previous_plan.steps,
+            verification_criteria=previous_plan.verification_criteria,
         )
+
 
 class StubExecutor:
     def execute(self, task_id: str, plan: Plan) -> ExecutionResult:
