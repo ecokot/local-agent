@@ -302,7 +302,6 @@ def test_invalid_or_incomplete_verification_report_fails_closed(tmp_path):
         _close(state, approvals)
 
 
-
 def test_reviewer_cannot_replace_authoritative_verification_report(tmp_path):
     actual_report = VerificationReport(
         results=(
