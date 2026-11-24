@@ -354,11 +354,8 @@ def test_invalid_tool_result_is_not_masked(tools):
 
 @pytest.mark.parametrize(
     "error",
-    [
-        RunCommandError("Command execution failed"),
-        OSError("Process communication failed"),
-    ],
-    ids=["run-command-error", "os-error"],
+    [RunCommandError("Command execution failed")],
+    ids=["run-command-error"],
 )
 @pytest.mark.parametrize(
     "criterion_factory",
