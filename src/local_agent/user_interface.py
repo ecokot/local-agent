@@ -1,8 +1,10 @@
 from local_agent.approval_manager import ApprovalManager
+from local_agent.execution.verification import VerificationReport
 from local_agent.models.agent import ExecutionResult, ReviewResult
 from local_agent.models.approval import Approval
 from local_agent.models.plan import Plan
 from local_agent.orchestrator import Orchestrator
+from local_agent.state_manager import TaskStatus
 
 
 class UserInterface:
@@ -19,7 +21,7 @@ class UserInterface:
         print("Введите задачу или 'exit' для выхода.")
 
         while True:
-            description = input("\nЗадача: ").strip()
+            description = input("\\nЗадача: ").strip()
 
             if description.lower() == "exit":
                 break
@@ -37,12 +39,12 @@ class UserInterface:
             self._show_plan(plan_approval)
 
             answer = input(
-                "\nВыполнить этот план? [y/n]: "
+                "\\nВыполнить этот план? [y/n]: "
             ).strip().lower()
 
             if answer != "y":
                 self.orchestrator.reject_plan(plan_approval.approval_id)
-                print("\nПлан отклонён. Задача отменена.")
+                print("\\nПлан отклонён. Задача отменена.")
                 return
 
             self.approval_manager.approve(plan_approval.approval_id)
@@ -58,7 +60,7 @@ class UserInterface:
                     result.pending_approval_id
                 )
 
-                print("\nТребуется подтверждение действия:")
+                print("\\nТребуется подтверждение действия:")
                 print(f"   Тип: {pending.action_type}")
                 print(f"   Параметры: {pending.parameters}")
 
@@ -72,14 +74,14 @@ class UserInterface:
                     self.approval_manager.reject(pending.approval_id)
                     self.orchestrator.clear_execution_progress(pending.task_id)
                     print(
-                        "\nДействие отклонено. "
+                        "\\nДействие отклонено. "
                         "Задача завершена с ошибкой."
                     )
                     return
                 else:
                     self.approval_manager.cancel(pending.approval_id)
                     self.orchestrator.clear_execution_progress(pending.task_id)
-                    print("\nДействие отменено. Задача отменена.")
+                    print("\\nДействие отменено. Задача отменена.")
                     return
 
                 result = self.orchestrator.execute_approved_plan(
@@ -89,22 +91,71 @@ class UserInterface:
             if isinstance(result, Approval):
                 plan_approval = result
                 print(
-                    "\nReviewer вернул замечания. "
+                    "\\nReviewer вернул замечания. "
                     "Planner подготовил изменённый план."
                 )
                 continue
 
             if isinstance(result, ReviewResult):
-                print(f"\nРезультат проверки: {result.approved}")
-                print(f"Комментарий: {result.feedback}")
+                task_status = self.orchestrator.state_manager.get_state(
+                    plan_approval.task_id
+                )
+                print(
+                    "\\nРешение Reviewer: "
+                    f"{'одобрено' if result.approved else 'не одобрено'}"
+                )
+                print(f"Статус задачи: {task_status.value}")
+                print(f"Комментарий Reviewer: {result.feedback}")
+
+                if result.verification_report is not None:
+                    self._show_verification_report(
+                        result.verification_report
+                    )
+
+                if task_status is TaskStatus.FAILED:
+                    report = result.verification_report
+                    if (
+                        result.approved
+                        and report is not None
+                        and not report.all_required_passed
+                    ):
+                        print(
+                            "\\nОшибка выполнения: Reviewer одобрил результат, "
+                            "но обязательные объективные проверки не пройдены."
+                        )
+                    else:
+                        print("\\nЗадача завершилась с ошибкой.")
+                elif task_status is TaskStatus.SUCCEEDED:
+                    print("\\nЗадача успешно завершена.")
                 return
 
-            print("\nВыполнение не завершено успешно.")
+            print("\\nВыполнение не завершено успешно.")
             if result.output:
                 print(result.output)
             for error in result.errors:
                 print(f"Ошибка: {error}")
             return
+
+    @staticmethod
+    def _show_verification_report(report: VerificationReport) -> None:
+        print("\\nРезультаты объективных проверок:")
+        for check in report.results:
+            requirement = (
+                "обязательный" if check.required else "необязательный"
+            )
+            print(
+                f"   [{check.criterion_id}] "
+                f"Тип: {check.criterion_type}; "
+                f"обязательность: {requirement}; "
+                f"статус: {check.status.value}"
+            )
+            if check.diagnostic:
+                print(f"      Диагностика: {check.diagnostic}")
+
+        print(
+            "Обязательные проверки: "
+            f"{'пройдены' if report.all_required_passed else 'не пройдены'}"
+        )
 
     @staticmethod
     def _show_plan(plan_approval: Approval) -> None:
@@ -113,18 +164,18 @@ class UserInterface:
         revision = plan_approval.parameters.get("revision", 0)
         if revision:
             print(
-                f"\nИзменённый план (пересмотр {revision}): "
+                f"\\nИзменённый план (пересмотр {revision}): "
                 f"{plan.summary}"
             )
         else:
-            print(f"\nПлан: {plan.summary}")
+            print(f"\\nПлан: {plan.summary}")
 
         for index, step in enumerate(plan.steps, start=1):
-            print(f"\n{index}. {step.description}")
+            print(f"\\n{index}. {step.description}")
             print(f"   Действие: {step.action}")
             print(f"   Параметры: {step.parameters}")
 
-        print("\nКритерии проверки:")
+        print("\\nКритерии проверки:")
         for index, criterion in enumerate(
             plan.verification_criteria, start=1
         ):
