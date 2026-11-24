@@ -339,16 +339,9 @@ def test_terminal_task_cannot_execute_again(tmp_path, terminal_status) -> None:
         approval = orchestrator.prepare_task("Terminal task")
         approval_manager.approve(approval.approval_id)
 
-        if terminal_status == TaskStatus.CANCELLED:
-            # Exercise the normal rejection path, then verify execution is blocked.
-            # A rejected approval is also not APPROVED, so the state guard is
-            # covered separately by the explicit status check below.
-            approval_manager.reject(approval.approval_id)
-            state_manager.transition(approval.task_id, TaskStatus.CANCELLED)
-        else:
-            state_manager.transition(approval.task_id, terminal_status)
+        state_manager.transition(approval.task_id, terminal_status)
 
-        with pytest.raises(ValueError, match="Plan has not been approved|state"):
+        with pytest.raises(ValueError, match="state"):
             orchestrator.execute_approved_plan(approval.approval_id)
 
         assert executor.calls == 0
@@ -394,3 +387,22 @@ def test_multiple_tasks_can_wait_for_approval(tmp_path) -> None:
         assert state_manager.get_state(second.task_id) == (
             TaskStatus.WAITING_FOR_APPROVAL
         )
+
+
+
+def test_reviewer_rejection_marks_successful_execution_failed(tmp_path) -> None:
+    with StateManager(tmp_path / "agent.db") as state_manager, ApprovalManager(
+            connection=state_manager.connection,
+            state_manager=state_manager,
+    ) as approval_manager:
+        orchestrator = _make_orchestrator(
+            state_manager, approval_manager,
+            reviewer=StubReviewer(approved=False),
+        )
+        approval = orchestrator.prepare_task("Reviewer rejects")
+        approval_manager.approve(approval.approval_id)
+
+        review = orchestrator.execute_approved_plan(approval.approval_id)
+
+        assert review.approved is False
+        assert state_manager.get_state(approval.task_id) == TaskStatus.FAILED
