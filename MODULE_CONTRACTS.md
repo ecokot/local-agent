@@ -5,7 +5,7 @@
 > **Проект:** `local-agent`
 > **Репозиторий:** https://github.com/ecokot/local-agent
 > **Основная ветка:** `main`
-> **Коммит проверенной версии кода:** `c0c3042`
+> **Коммит проверенной версии кода:** `c18391a`
 > **Актуальность:** 2026-11-24
 > **Среда:** Windows 11, Python 3.12+, `uv`, PowerShell, PyCharm
 >
@@ -44,28 +44,38 @@
 - Персистентное состояние задачи и подтверждений хранится в SQLite.
 - Подтверждение относится к конкретной задаче, типу действия и хешу параметров.
 
-В текущем коде реализована часть этой архитектуры: управление задачами, подтверждение плана, отдельный журнал выполнений и отдельный механизм восстановления. Полный автономный цикл пока не собран.
+В текущем коде реализованы управление задачами, подтверждение плана и исполнительная цепочка через ToolExecutorAdapter и ToolExecutor. ExecutionRecorder записывает отдельные вызовы инструментов; RecoveryManager проверяет сохранённую историю. Полный автономный цикл с реальными Planner/Reviewer на базе моделей пока не собран.
 
 ### 2.1 Фактические связи компонентов
 
-Текущая основная цепочка Orchestrator:
+Основная цепочка выполнения одобренного плана:
+
+`Orchestrator → ToolExecutorAdapter → ToolExecutor → инструменты`
+
+Фактическая последовательность:
 
 1. Orchestrator создаёт задачу через StateManager.
 2. Planner формирует Plan.
-3. Orchestrator сохраняет сериализованный план как параметры запроса подтверждения через ApprovalManager.
-4. ApprovalManager хранит запрос и переводит задачу в WAITING_FOR_APPROVAL.
-5. После решения пользователя Orchestrator получает Approval.
-6. При одобрении Orchestrator передаёт Plan в Executor, затем результат в Reviewer.
-7. Orchestrator переводит задачу в SUCCEEDED или FAILED.
-8. При отклонении плана Orchestrator завершает задачу как CANCELLED.
+3. Orchestrator сохраняет сериализованный Plan как параметры запроса PLAN_APPROVAL через ApprovalManager.
+4. После одобрения плана Orchestrator вызывает переданный ему Executor. Для исполнения плана через инструменты этой ролью выступает ToolExecutorAdapter.
+5. ToolExecutorAdapter последовательно передаёт каждый шаг в ToolExecutor: имя действия и параметры.
+6. ToolExecutor проверяет инструмент и параметры, при необходимости создаёт запрос подтверждения отдельного действия через ApprovalManager, а после одобрения запускает инструмент.
+7. ToolExecutor использует ExecutionRecorder для записи каждого фактического вызова инструмента.
+8. ToolExecutorAdapter собирает результаты шагов и возвращает ExecutionResult. Если требуется подтверждение, он возвращает состояние ожидания и сохраняет текущий прогресс в памяти процесса.
+9. После одобрения отдельного действия Orchestrator повторно вызывает Executor с тем же task_id и Plan; Adapter продолжает с ожидающего шага, не повторяя уже завершённые.
+10. Только после полного успешного выполнения Orchestrator передаёт Reviewer исходный Plan и фактический ExecutionResult со step_results.
+11. Orchestrator завершает задачу как SUCCEEDED или FAILED на основании результата Reviewer и исполнения.
 
-Отдельные компоненты, которые пока не встроены в эту цепочку:
+При отклонении плана Orchestrator завершает задачу как CANCELLED. Отклонение/отмена отдельного действия обрабатывается исполнительным контуром и ApprovalManager.
+
+Другие компоненты и ограничения интеграции:
 
 - ModelClient и ModelRouter не вызываются Orchestrator.
 - ContextManager не используется Orchestrator или ModelClient автоматически.
-- ExecutionRecorder не вызывается Orchestrator.
+- ExecutionRecorder встроен в ToolExecutor, а не вызывается Orchestrator напрямую.
 - RecoveryManager существует отдельно и должен быть вызван приложением при восстановлении; автоматического запуска из Orchestrator/UserInterface нет.
-- StubPlanner, StubExecutor и StubReviewer — тестовые заглушки, а не реальные LLM-агенты или исполнитель инструментов.
+- StubPlanner, StubExecutor и StubReviewer остаются тестовыми заглушками. StubExecutor — не единственный вариант Executor: ToolExecutorAdapter является реализацией контракта Executor для выполнения плана через инструменты.
+- Прогресс ToolExecutorAdapter хранится только в памяти процесса. Восстановление позиции и продолжение плана после перезапуска не реализованы.
 
 ## 3. Инвентаризация модулей
 
@@ -213,15 +223,16 @@
 Ограничения:
 
 - Orchestrator не вызывает ModelClient, ModelRouter или ContextManager.
-- Orchestrator не вызывает ExecutionRecorder и не создаёт записи Execution.
+- Orchestrator не вызывает ExecutionRecorder напрямую: запись каждого запуска инструмента выполняет ToolExecutor.
 - Orchestrator не вызывает RecoveryManager.
 - Хотя Planner Protocol содержит revise_plan, текущий Orchestrator не реализует цикл пересмотра плана по замечаниям Reviewer.
 - Текущий цикл не является полноценным coder → reviewer → coder loop.
-- Executor получает Plan, но не Task.
-- Вызов execute_approved_plan не имеет заявленного возвращаемого типа; результат работы фиксируется через состояние задачи и ошибки.
+- Executor получает task_id и Plan.
+- ToolExecutorAdapter хранит прогресс шагов только в памяти процесса; восстановление этого прогресса после перезапуска не реализовано.
+- execute_approved_plan(approval_id: str) -> ReviewResult | ExecutionResult возвращает результат ожидания подтверждения/исполнения либо итог Reviewer.
 - Не считать наличие Reviewer доказательством независимого анализа кода: это определяется конкретной реализацией переданного объекта.
 
-Жизненный цикл и проверки: после создания задачи исключения Planner или создания запроса подтверждения переводят CREATED в FAILED. При выполнении допускается только подтверждение типа PLAN_APPROVAL со статусом APPROVED и задача в актуальном состоянии RUNNING. Проверка состояния выполняется до передачи плана Executor, поэтому терминальную задачу нельзя выполнить повторно. Исключения Executor и Reviewer, неуспешный ExecutionResult и отклонение Reviewer завершают задачу как FAILED. Отклонение ожидающего подтверждения плана фиксируется ApprovalManager, после чего Orchestrator переводит задачу в CANCELLED. Несколько задач могут одновременно находиться в WAITING_FOR_APPROVAL; глобального ограничения на одну активную задачу нет.
+Жизненный цикл и проверки: после создания задачи исключения Planner или создания запроса подтверждения переводят CREATED в FAILED. При выполнении допускается только подтверждение типа PLAN_APPROVAL со статусом APPROVED и задача в актуальном состоянии RUNNING. Проверка состояния выполняется до передачи плана Executor, поэтому терминальную задачу нельзя выполнить повторно. Если ToolExecutor обнаруживает действие, требующее подтверждения, ApprovalManager сохраняет запрос отдельного действия и задача переходит в WAITING_FOR_APPROVAL. При одобрении запроса задача возвращается в RUNNING; Orchestrator повторно вызывает Executor, а Adapter продолжает с ожидающего шага. При ожидании Reviewer не вызывается. Отклонение/отмена отдельного действия обрабатывается ApprovalManager и исполнительным контуром. Исключения Executor и Reviewer, неуспешный ExecutionResult и отклонение Reviewer завершают задачу как FAILED. Отклонение ожидающего подтверждения плана фиксируется ApprovalManager, после чего Orchestrator переводит задачу в CANCELLED. Несколько задач могут одновременно находиться в WAITING_FOR_APPROVAL; глобального ограничения на одну активную задачу нет.
 
 Ошибки: ошибки доступа к задаче/подтверждению, ошибки проверки статуса и валидации Plan, а также ошибки Planner/Executor/Reviewer. Исключения этапов подготовки и выполнения повторно выбрасываются вызывающему коду после обновления состояния задачи.
 
@@ -300,6 +311,7 @@
 - Запись событий в SQLite и запись trace-файлов — разные операции; для трасс предусмотрены механизмы отложенной записи и восстановления.
 - event_type принимается как строка; не следует считать, что каждый вызов record_event автоматически ограничен ExecutionEventType.
 - ExecutionRecorder не вызывает исполнитель и не управляет разрешениями.
+- В текущей исполнительной цепочке ToolExecutor вызывает start_execution перед запуском инструмента, а затем finish_execution или fail_execution по результату. Поэтому журналирование встроено в каждый вызов инструмента, а не в Orchestrator целиком.
 
 Ошибки: ошибки SQLite, файловой системы и сериализации; ошибки неизвестного execution_id и недопустимых операций над завершённым выполнением. Специальная прикладная ошибка восстановления истории определена в RecoveryManager как RecoveryError.
 
@@ -357,7 +369,8 @@
 
 - Вызывающий код передаёт имя инструмента и параметры, но не может передать собственную политику разрешений или объект произвольного инструмента.
 - ToolExecutor не заменяет ApprovalManager и ExecutionRecorder.
-- ToolExecutor пока не интегрирован с Orchestrator.
+- ToolExecutor вызывается из ToolExecutorAdapter, который реализует контракт Executor и последовательно исполняет шаги Plan.
+- Для требующих подтверждения действий ToolExecutor создаёт запрос через ApprovalManager. При PENDING возвращает WAITING_FOR_APPROVAL; после одобрения повторный вызов ToolExecutor с теми же параметрами позволяет выполнить действие.
 - run_command и run_tests требуют подтверждения. ToolExecutor повторно проверяет одобрение непосредственно перед вызовом соответствующего инструмента.
 - RunCommandTool передаёт команду в ExecutionBackend; Backend запускает её в Docker-контейнере с явно смонтированным Workspace.
 - RunTestsTool использует тот же путь исполнения через RunCommandTool и ExecutionBackend.
@@ -625,19 +638,37 @@ RunCommandTool не запускает команды самостоятельн
 - Не связан с SQLite и не является долговременным хранилищем.
 - Orchestrator не использует его автоматически, не исследует файлы, не формирует сообщения и не управляет контекстом. Контракт Planner.create_plan(task) не меняется.
 
-### 3.10 Агентные Protocol и заглушки
+### 3.10 Агентные Protocol, адаптер и заглушки
 
-**Файлы:** src/local_agent/agents/protocols.py, src/local_agent/agents/stubs.py
-**Тесты:** test/test_agent_protocols.py, test/test_agent_stubs.py, test/test_agent_models.py
+**Файлы:** src/local_agent/agents/protocols.py, src/local_agent/agents/stubs.py, src/local_agent/agents/tool_executor_adapter.py
+**Тесты:** test/test_agent_protocols.py, test/test_agent_stubs.py, test/test_agent_models.py, test/test_tool_executor_adapter.py
 
 Контракты в protocols.py:
 
 - Planner.create_plan(task: Task) -> Plan
 - Planner.revise_plan(task: Task, previous_plan: Plan, feedback: str) -> Plan
-- Executor.execute(plan: Plan) -> ExecutionResult
+- Executor.execute(task_id: str, plan: Plan) -> ExecutionResult
 - Reviewer.review(plan: Plan, result: ExecutionResult) -> ReviewResult
 
-Это typing.Protocol-контракты. Они описывают требуемый интерфейс объектов, передаваемых в Orchestrator, но не реализуют вызов модели.
+Это typing.Protocol-контракты. Orchestrator получает реализации через внедрение зависимостей; сам Protocol не реализует вызов модели или инструментов.
+
+ToolExecutorAdapter — реализация контракта Executor для исполнения шагов Plan через ToolExecutor.
+
+Публичный контракт:
+
+- __init__(tool_executor: ToolExecutor) -> None
+- execute(task_id: str, plan: Plan) -> ExecutionResult
+
+Поведение ToolExecutorAdapter:
+
+- Проверяет task_id и последовательно обрабатывает Plan.steps.
+- Для каждого шага вызывает ToolExecutor.execute(task_id, step.action, step.parameters).
+- При успешном выполнении добавляет фактический результат и execution_id в step_results и переходит к следующему шагу.
+- При WAITING_FOR_APPROVAL возвращает ExecutionResult с waiting_for_approval=True и pending_approval_id; текущий шаг остаётся ожидающим.
+- После одобрения Orchestrator повторно вызывает Executor с тем же task_id и Plan. Adapter продолжает с сохранённого индекса, не повторяя ранее завершённые шаги.
+- При ошибке инструмента завершает выполнение с ошибкой.
+- Если переданный при продолжении Plan отличается от сохранённого, продолжение отклоняется.
+- Прогресс и накопленные step_results хранятся в словаре Adapter в памяти процесса. После перезапуска процесса они теряются; механизм восстановления/перепостроения прогресса отсутствует.
 
 Заглушки в stubs.py:
 
@@ -646,7 +677,7 @@ RunCommandTool не запускает команды самостоятельн
 - StubReviewer — тестовая реализация Reviewer.
 - get_stub_agents() -> tuple[Planner, Executor, Reviewer] — фабрика тестового набора.
 
-Заглушки нужны для тестирования orchestration без сетевого вызова модели и без реального исполнения инструментов.
+Заглушки нужны для тестирования orchestration без сетевого вызова модели и без реального исполнения инструментов. StubExecutor — альтернативная тестовая реализация Executor, а не единственный доступный исполнитель.
 
 В проекте нет отдельного публичного Coder Protocol. Роль, отвечающая за исполнение плана, в текущем интерфейсе называется Executor. Не называть Executor полноценным Coder без отдельного изменения контракта и реализации.
 
@@ -817,23 +848,27 @@ TaskStatus импортируется для типизации из state_manag
 
 ### 5.3 Выполнение одобренного плана
 
-Реализован базовый путь:
+Реализованный путь:
 
 1. Orchestrator загружает Approval.
 2. Проверяет, что запрос одобрен и относится к исполнению плана.
 3. Восстанавливает Plan из сохранённых параметров.
-4. Передаёт Plan в Executor.execute.
-5. Передаёт ExecutionResult в Reviewer.review.
-6. При успешном результате и одобрении Reviewer задача становится SUCCEEDED.
-7. При неуспехе или отклонении Reviewer задача становится FAILED.
+4. Вызывает Executor.execute(task_id, plan). В исполнительной конфигурации эту роль выполняет ToolExecutorAdapter.
+5. ToolExecutorAdapter последовательно передаёт шаги в ToolExecutor.execute(task_id, tool_name, parameters).
+6. ToolExecutor проверяет имя инструмента и параметры. Для действий с обязательным подтверждением создаёт запрос через ApprovalManager.
+7. Если ToolExecutor возвращает WAITING_FOR_APPROVAL, Adapter возвращает Orchestrator ExecutionResult с waiting_for_approval=True и pending_approval_id. Задача остаётся в WAITING_FOR_APPROVAL, Reviewer не вызывается.
+8. После одобрения отдельного действия Orchestrator повторно вызывает Executor с тем же task_id и Plan. Adapter продолжает с ожидающего шага, используя сохранённый in-memory прогресс.
+9. ToolExecutor записывает вызовы инструментов через ExecutionRecorder: начало и успешное/неуспешное завершение.
+10. После успешного выполнения всех шагов Adapter возвращает ExecutionResult с фактическими результатами в step_results.
+11. Orchestrator передаёт полный ExecutionResult в Reviewer.review(plan, result).
+12. При одобрении Reviewer задача становится SUCCEEDED; при отклонении Reviewer или неуспешном исполнении задача становится FAILED.
 
-Не реализовано в текущем Orchestrator:
+Ограничения текущей реализации:
 
-- цикл исправления замечаний;
-- повторная генерация плана через Planner.revise_plan;
-- отдельный Coder, который меняет файлы;
-- реальное исполнение локальных инструментов;
-- запись каждой попытки в ExecutionRecorder.
+- прогресс ToolExecutorAdapter хранится только в памяти процесса и не восстанавливается после перезапуска;
+- цикл исправления замечаний и повторная генерация плана через Planner.revise_plan не реализованы;
+- отдельный Coder Protocol/реализация отсутствуют;
+- реальные Planner/Reviewer на базе ModelClient не подключены.
 
 ### 5.4 Состояния задачи
 
@@ -869,13 +904,13 @@ ExecutionRecorder поддерживает несколько Execution для �
 |-------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|| Python управляет состоянием задачи                          | Реализовано через StateManager.                                                                                                                                                                                                                     |
 | SQLite — источник истины для задач                          | Реализовано через StateManager.                                                                                                                                                                                                                     |
 | SQLite — источник истины для подтверждений                  | Реализовано через ApprovalManager.                                                                                                                                                                                                                  |
-| Модель не должна выполнять инструменты в обход Python       | ToolExecutor предоставляет Python-точку запуска фиксированного набора инструментов. Интеграция с Orchestrator пока отсутствует.                                                                                                                     |
+| Модель не должна выполнять инструменты в обход Python       | Реализовано: Orchestrator передаёт Plan в ToolExecutorAdapter, который вызывает ToolExecutor — единую Python-точку запуска фиксированного набора инструментов.                                                                                         |
 | Модель анализирует и предлагает план                        | Контракт Planner существует; текущая интеграция использует переданный объект Planner, реальные модели не подключены.                                                                                                                                |
 | Контекст модели формируется приложением явно                | ContextManager реализует список сообщений, но пока не интегрирован с Orchestrator/ModelClient.                                                                                                                                                      |
 | Подтверждение привязано к действию и параметрам             | Реализовано в ApprovalManager через action_type и parameters_hash.                                                                                                                                                                                  |
 | Отмена идентичного действия окончательна                    | Реализована блокировка повторного запроса с теми же параметрами после CANCELLED.                                                                                                                                                                    |
-| Рискованные действия требуют подтверждения Python           | Частично реализовано: ToolExecutor запрашивает подтверждение через ApprovalManager для create_file, write_file, run_command и run_tests. list_directory, read_file и get_diff выполняются без подтверждения. Интеграция с Orchestrator отсутствует. |
-| История выполнений используется при восстановлении          | Реализованы ExecutionRecorder и RecoveryManager, но их автоматическая интеграция с Orchestrator отсутствует.                                                                                                                                        |
+| Рискованные действия требуют подтверждения Python           | Реализовано в исполнительной цепочке: ToolExecutorAdapter → ToolExecutor → ApprovalManager. create_file, write_file, run_command и run_tests требуют подтверждения; list_directory, read_file и get_diff выполняются без него.                 |
+| История выполнений используется при восстановлении          | ToolExecutor записывает каждый вызов инструмента через ExecutionRecorder; RecoveryManager отдельно проверяет сохранённую историю. Автоматический запуск RecoveryManager при старте не подключён.                                                     |
 | Контекст и данные задачи не зависят от неявной истории чата | Целевое правило; ContextManager существует, но его сборка в единый контекст задачи ещё не интегрирована.                                                                                                                                            |
 | Не добавлять менеджеры и абстракции без необходимости       | Действующее архитектурное правило проекта, не машинно проверяемый инвариант.                                                                                                                                                                        |
 | Изоляция выполнения системных команд                        | RunCommandTool выполняет команды через ExecutionBackend в Docker с Workspace; RunTestsTool использует тот же путь через RunCommandTool. Docker integration tests проверяют фактическую работу Backend; сквозные тесты инструментов должны быть отражены после их добавления. |
@@ -883,12 +918,11 @@ ExecutionRecorder поддерживает несколько Execution для �
 ### 6.1 Известные разрывы интеграции
 
 1. Orchestrator не использует ModelClient/ModelRouter/ContextManager.
-2. Orchestrator не записывает Execution через ExecutionRecorder.
-3. RecoveryManager не вызывается автоматически при старте.
-4. ToolExecutor и семь инструментов реализованы как самостоятельный исполнительный слой, но пока не подключены к Orchestrator. Команды run_command и run_tests выполняются через ExecutionBackend в Docker с Workspace.
-5. Planner.revise_plan определён, но не участвует в цикле выполнения.
-6. ApprovalManager при решении последнего pending-запроса переводит задачу в RUNNING независимо от исхода решения. Терминальный переход при отмене должен быть обеспечен вызывающим процессом; прямой cancel требует отдельного внимания.
-7. Текущий набор статусов TaskStatus не содержит отдельных состояний для планирования, ревью или ожидания исправлений.
+2. RecoveryManager не вызывается автоматически при старте.
+3. ToolExecutorAdapter хранит прогресс выполнения только в памяти процесса; после перезапуска продолжить с ожидающего шага нельзя.
+4. Planner.revise_plan определён, но не участвует в цикле выполнения.
+5. Текущий цикл не включает автоматическое исправление замечаний Reviewer и повторный запуск Coder.
+6. Текущий набор статусов TaskStatus не содержит отдельных состояний для планирования, ревью или ожидания исправлений.
 
 ## 7. Карта тестов
 
@@ -914,7 +948,7 @@ ExecutionRecorder поддерживает несколько Execution для �
 | test/test_execution_backend.py                         | Unit-тесты ExecutionBackend: формирование команды Docker, валидация параметров, обработка ошибок, тайм-аут и очистка контейнера. |
 | test/integration/test_execution_backend_integration.py | Docker integration tests: выполнение команд через ExecutionBackend, stdout/stderr, exit code, Workspace, UID/GID, ограничения контейнера, очистка контейнера, а также сквозная проверка RunCommandTool и RunTestsTool через реальный Docker Backend. |
 
-Тесты не заменяют проверку фактической интеграции. Наличие отдельных тестов ModelClient, ContextManager и ExecutionRecorder не доказывает, что эти компоненты вызываются из Orchestrator.
+Тесты не заменяют проверку фактической интеграции. ModelClient и ContextManager остаются вне автоматической цепочки Orchestrator. ExecutionRecorder, напротив, вызывается ToolExecutor при каждом фактическом запуске инструмента; это не означает, что Orchestrator управляет журналом напрямую.
 
 ## 8. Что пока не реализовано как единая система
 
@@ -922,12 +956,11 @@ ExecutionRecorder поддерживает несколько Execution для �
 
 - Полноценный автономный цикл с реальными Planner/Coder/Reviewer, работающими через ModelClient.
 - Автоматическое построение контекста задачи из файлов и состояния проекта.
-- Интеграция ToolExecutor с Orchestrator и включение инструментов в общий цикл выполнения задачи.
+- Подключение реальных Planner/Reviewer на базе ModelClient и автоматическое построение контекста задачи из файлов и состояния проекта.
 - Расширение и уточнение политик разрешений за пределами текущего фиксированного набора инструментов.
 - Цикл coder → reviewer → coder с ограничением попыток и формальным условием выхода.
-- Интеграция ExecutionRecorder в каждую попытку Orchestrator.
 - Автоматический вызов RecoveryManager при запуске приложения.
-- Продолжение прерванного выполнения после перезапуска.
+- Восстановление прогресса ToolExecutorAdapter и продолжение прерванного плана после перезапуска.
 - Автоматическая политика retry/backoff.
 - Отдельная роль Coder как конкретный Protocol/реализация.
 - Полное управление жизненным циклом локального рабочего пространства проекта.
