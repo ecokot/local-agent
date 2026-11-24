@@ -7,6 +7,8 @@ from local_agent.state_manager import StateManager, TaskStatus
 
 
 class Orchestrator:
+    MAX_PLAN_REVISIONS = 2
+
     def __init__(
             self,
             state_manager: StateManager,
@@ -31,7 +33,7 @@ class Orchestrator:
             return self.approval_manager.request_approval(
                 task_id=task_id,
                 action_type="PLAN_APPROVAL",
-                parameters={"plan": plan.model_dump(mode="json")},
+                parameters={"plan": plan.model_dump(mode="json"), "revision": 0},
             )
         except Exception:
             if self.state_manager.get_state(task_id) == TaskStatus.CREATED:
@@ -41,7 +43,7 @@ class Orchestrator:
     def execute_approved_plan(
             self,
             approval_id: str,
-    ) -> ReviewResult | ExecutionResult:
+    ) -> Approval | ReviewResult | ExecutionResult:
         approval = self.approval_manager.get_approval(approval_id)
 
         if approval.action_type != "PLAN_APPROVAL":
@@ -77,13 +79,42 @@ class Orchestrator:
             self.state_manager.transition(task_id, TaskStatus.FAILED)
             raise
 
-        final_status = (
-            TaskStatus.SUCCEEDED
-            if review.approved
-            else TaskStatus.FAILED
+        revision = approval.parameters.get("revision", 0)
+        self.state_manager.record_review(
+            task_id=task_id,
+            revision=revision,
+            plan=plan.model_dump(mode="json"),
+            approved=review.approved,
+            feedback=review.feedback,
         )
-        self.state_manager.transition(task_id, final_status)
-        return review
+
+        if review.approved:
+            self.state_manager.transition(task_id, TaskStatus.SUCCEEDED)
+            return review
+
+        if revision >= self.MAX_PLAN_REVISIONS:
+            self.state_manager.transition(task_id, TaskStatus.FAILED)
+            return review
+
+        try:
+            task = self.state_manager.get_task(task_id)
+            revised_plan = self.planner.revise_plan(
+                task,
+                plan,
+                review.feedback,
+            )
+            return self.approval_manager.request_approval(
+                task_id=task_id,
+                action_type="PLAN_APPROVAL",
+                parameters={
+                    "plan": revised_plan.model_dump(mode="json"),
+                    "revision": revision + 1,
+                },
+            )
+        except Exception:
+            if self.state_manager.get_state(task_id) == TaskStatus.RUNNING:
+                self.state_manager.transition(task_id, TaskStatus.FAILED)
+            raise
 
     def reject_plan(self, approval_id: str) -> Approval:
         approval = self.approval_manager.get_approval(approval_id)
