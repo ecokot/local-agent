@@ -1,7 +1,7 @@
 from local_agent.agents.stubs import StubPlanner
 from local_agent.agents.tool_executor_adapter import ToolExecutorAdapter
 from local_agent.models.agent import ReviewResult
-from local_agent.orchestrator import Orchestrator
+from local_agent.orchestrator import Orchestrator\nfrom local_agent.user_interface import UserInterface
 from local_agent.approval_manager import ApprovalManager
 from local_agent.execution.recorder import ExecutionRecorder
 from local_agent.execution.tool_executor import ToolExecutor
@@ -239,5 +239,33 @@ def test_orchestrator_resumes_after_action_approval_and_reviews_real_results(
         assert reviewer.result.step_results[0]["result"]["tool"] == "create_file"
         assert len(recorder.get_executions_for_task(task_id)) == 1
         assert state.get_state(task_id) == TaskStatus.SUCCEEDED
+    finally:
+        close_environment(environment)
+
+
+
+def test_user_interface_handles_plan_and_action_approvals(
+    tmp_path,
+    monkeypatch,
+):
+    environment = build_environment(tmp_path)
+    state, approvals, _, tools, adapter, _task_id = environment
+
+    try:
+        orchestrator = Orchestrator(
+            state_manager=state,
+            approval_manager=approvals,
+            planner=StubPlanner(),
+            executor=adapter,
+            reviewer=RecordingReviewer(),
+        )
+        answers = iter(["y", "y"])
+        monkeypatch.setattr("builtins.input", lambda _: next(answers))
+
+        UserInterface(orchestrator, approvals)._run_task("Create a file")
+
+        task = state.get_tasks()[-1]
+        assert task.status == TaskStatus.SUCCEEDED
+        assert len(tools["create_file"].calls) == 1
     finally:
         close_environment(environment)
