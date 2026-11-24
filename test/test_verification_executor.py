@@ -53,9 +53,14 @@ def ruff_criterion(*, required: bool = True) -> dict:
     }
 
 
-def file_criterion(path: str, *, required: bool = True) -> dict:
+def file_criterion(
+    path: str,
+    *,
+    criterion_id: str = "artifact",
+    required: bool = True,
+) -> dict:
     return {
-        "id": "artifact",
+        "id": criterion_id,
         "type": "file_exists",
         "description": "Check artifact",
         "required": required,
@@ -409,7 +414,7 @@ def test_workspace_error_becomes_error_and_next_criterion_runs(tools):
 
     report = executor.execute(
         make_plan([
-            file_criterion("blocked.txt"),
+            file_criterion("blocked.txt", criterion_id="blocked"),
             file_criterion("artifact.txt"),
         ])
     )
@@ -444,7 +449,7 @@ def test_file_system_os_error_becomes_error_and_next_criterion_runs(
 
     report = executor.execute(
         make_plan([
-            file_criterion("blocked.txt"),
+            file_criterion("blocked.txt", criterion_id="blocked"),
             file_criterion("artifact.txt"),
         ])
     )
