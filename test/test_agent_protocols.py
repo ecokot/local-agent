@@ -30,7 +30,7 @@ class FakePlanner:
 
 
 class FakeExecutor:
-    def execute(self, plan: Plan) -> ExecutionResult:
+    def execute(self, task_id: str, plan: Plan) -> ExecutionResult:
         return ExecutionResult(success=True, output="Done")
 
 
@@ -66,7 +66,7 @@ def test_fake_executor_matches_protocol() -> None:
         ],
     )
 
-    result = executor.execute(plan)
+    result = executor.execute("test-task", plan)
 
     assert result.success is True
 
