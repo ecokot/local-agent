@@ -47,6 +47,7 @@ class FileExistsParameters(BaseModel):
         if (
             posix_path.is_absolute()
             or windows_path.is_absolute()
+            or windows_path.root
             or windows_path.drive
             or not posix_path.parts
             or any(part == ".." for part in posix_path.parts)

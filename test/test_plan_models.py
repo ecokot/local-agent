@@ -228,7 +228,7 @@ def test_plan_rejects_unknown_or_unsafe_criterion_data(
         )
 
 
-@pytest.mark.parametrize("path", ["", " ", "../secret.txt", "C:\\secret.txt", "/etc/passwd", "..\\secret.txt"])
+@pytest.mark.parametrize("path", ["", " ", "../secret.txt", "C:\\secret.txt", "/etc/passwd", "..\\secret.txt", "\\secret.txt", "/secret.txt"])
 def test_file_exists_criterion_rejects_unsafe_paths(path: str) -> None:
     with pytest.raises(ValidationError):
         Plan(
