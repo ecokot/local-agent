@@ -40,6 +40,7 @@ class ToolExecutorAdapter:
             progress = _TaskProgress(plan=plan.model_copy(deep=True))
             self._progress[task_id] = progress
         elif progress.plan != plan:
+            self._progress.pop(task_id, None)
             return ExecutionResult(
                 success=False,
                 errors=[
@@ -53,11 +54,15 @@ class ToolExecutorAdapter:
             step_index = progress.next_step
             step = progress.plan.steps[step_index]
 
-            tool_result = self._tool_executor.execute(
-                task_id,
-                step.action,
-                step.parameters,
-            )
+            try:
+                tool_result = self._tool_executor.execute(
+                    task_id,
+                    step.action,
+                    step.parameters,
+                )
+            except Exception:
+                self._progress.pop(task_id, None)
+                raise
 
             if tool_result.status == ToolExecutionStatus.WAITING_FOR_APPROVAL:
                 return ExecutionResult(
