@@ -507,22 +507,27 @@ def test_plan_revision_limit_stops_after_two_revisions(tmp_path):
         )
 
         approval = orchestrator.prepare_task("Build feature")
+        task_id = approval.task_id
+
         for expected_revision in (1, 2):
             approvals.approve(approval.approval_id)
             approval = orchestrator.execute_approved_plan(
                 approval.approval_id
             )
-            if expected_revision == 1:
-                assert approval.parameters["revision"] == 1
-                assert approval.status == ApprovalStatus.PENDING
-            else:
-                assert isinstance(approval, ReviewResult)
-                assert approval.approved is False
+            assert approval.parameters["revision"] == expected_revision
+            assert approval.status == ApprovalStatus.PENDING
 
+        approvals.approve(approval.approval_id)
+        final_review = orchestrator.execute_approved_plan(
+            approval.approval_id
+        )
+
+        assert isinstance(final_review, ReviewResult)
+        assert final_review.approved is False
         assert len(planner.received_feedback) == 2
         assert executor.calls == 3
-        assert state.get_state(approval.task_id) == TaskStatus.FAILED
-        assert len(state.get_review_history(approval.task_id)) == 3
+        assert state.get_state(task_id) == TaskStatus.FAILED
+        assert len(state.get_review_history(task_id)) == 3
 
 
 def test_revised_plan_approval_is_required_before_second_execution(tmp_path):
