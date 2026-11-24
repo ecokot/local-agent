@@ -128,6 +128,7 @@ def test_rejected_action_marks_task_failed(managers):
     manager.reject(first.approval_id)
 
     assert manager.get_approval(first.approval_id).status == ApprovalStatus.REJECTED
+    assert manager.state_manager.get_state(task_id) == TaskStatus.FAILED
 
 
 def test_cannot_decide_approval_twice(managers):
@@ -464,14 +465,12 @@ def test_cancelled_task_cannot_request_changed_action(managers):
     )
     manager.cancel(first.approval_id)
 
-    second = manager.request_approval(
-        task_id,
-        "CREATE_FILE",
-        {"path": "other.py"},
-    )
-
-    assert second.approval_id != first.approval_id
-    assert second.status == ApprovalStatus.PENDING
+    with pytest.raises(ValueError, match="Invalid transition"):
+        manager.request_approval(
+            task_id,
+            "CREATE_FILE",
+            {"path": "other.py"},
+        )
 
 
 def test_cancelled_approval_survives_manager_restart(tmp_path):
