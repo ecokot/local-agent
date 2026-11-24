@@ -30,7 +30,7 @@
 ### Команда
 
 ```powershell
-$stage = "Этап 8.Б"
+$stage = "Этап 8.В"
 $root = (Get-Location).Path
 $commit = git rev-parse --short HEAD
 
