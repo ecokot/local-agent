@@ -52,8 +52,10 @@ class ToolExecutorAdapter:
                 return ExecutionResult(
                     success=False,
                     errors=[
-                        "The plan changed while execution was waiting. "
-                        "A new plan cannot replace a suspended execution."
+                        (
+                            "The plan changed while execution was waiting. "
+                            "A new plan cannot replace a suspended execution."
+                        )
                     ],
                     step_results=deepcopy(progress.step_results),
                 )
@@ -160,9 +162,7 @@ class ToolExecutorAdapter:
                 and completed_index not in progress.reused_step_indexes
             ):
                 progress.reused_step_indexes.add(completed_index)
-                reused = deepcopy(completed.result)
-                reused["step_index"] = step_index
-                return reused
+                return deepcopy(completed.result)
         return None
 
     @staticmethod
