@@ -1,5 +1,5 @@
 from pathlib import PurePosixPath, PureWindowsPath
-from typing import Annotated, Literal, Union
+from typing import Annotated, Any, Literal, Union
 
 from pydantic import (
     BaseModel,
@@ -15,7 +15,7 @@ class PlanStep(BaseModel):
 
     description: str = Field(min_length=1)
     action: str = Field(min_length=1)
-    parameters: dict
+    parameters: dict[str, Any]
 
 
 class _EmptyParameters(BaseModel):
