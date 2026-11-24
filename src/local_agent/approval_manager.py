@@ -288,9 +288,27 @@ class ApprovalManager:
                 ).fetchone()[0]
 
                 if pending == 0:
+                    if status == ApprovalStatus.APPROVED:
+                        next_task_status = TaskStatus.RUNNING
+                    elif status == ApprovalStatus.REJECTED:
+                        # Rejecting the overall plan is finalized by Orchestrator.
+                        next_task_status = (
+                            TaskStatus.RUNNING
+                            if self.get_approval(approval_id).action_type
+                            == "PLAN_APPROVAL"
+                            else TaskStatus.FAILED
+                        )
+                    else:
+                        next_task_status = (
+                            TaskStatus.RUNNING
+                            if self.get_approval(approval_id).action_type
+                            == "PLAN_APPROVAL"
+                            else TaskStatus.CANCELLED
+                        )
+
                     self.state_manager.transition_in_transaction(
                         task_id,
-                        TaskStatus.RUNNING,
+                        next_task_status,
                     )
             self.connection.commit()
 
