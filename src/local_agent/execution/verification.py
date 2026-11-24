@@ -145,7 +145,7 @@ class VerificationExecutor:
                     exit_code=result.exit_code,
                 ),
             )
-        except (RunCommandError, OSError) as error:
+        except RunCommandError as error:
             return self._error_result(criterion, error)
 
     def _execute_ruff(
