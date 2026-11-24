@@ -116,7 +116,7 @@
 |---|---|
 | CREATED | RUNNING, WAITING_FOR_APPROVAL, FAILED, CANCELLED |
 | RUNNING | WAITING_FOR_APPROVAL, SUCCEEDED, FAILED, CANCELLED |
-| WAITING_FOR_APPROVAL | RUNNING, CANCELLED |
+| WAITING_FOR_APPROVAL | RUNNING, FAILED, CANCELLED |
 | SUCCEEDED | Нет переходов |
 | FAILED | Нет переходов |
 | CANCELLED | Нет переходов |
@@ -184,7 +184,13 @@
 - ApprovalManager может использовать StateManager для атомарного обновления статуса задачи при принятии решения.
 - Если остаются другие PENDING-запросы для задачи, задача продолжает ждать подтверждения.
 
-Важное ограничение текущей реализации: общий путь _decide после решения последнего ожидающего запроса переводит задачу в RUNNING независимо от того, был запрос одобрен, отклонён или отменён. Это не эквивалентно завершению задачи как CANCELLED. Orchestrator отдельно завершает задачу при отклонении плана, но прямой вызов ApprovalManager.cancel сам по себе не гарантирует терминальный статус задачи. Учитывать это при изменении политики подтверждений.
+Обновление статуса задачи при решении последнего ожидающего запроса:
+
+- Если остаются другие PENDING-запросы задачи, статус задачи остаётся WAITING_FOR_APPROVAL.
+- После APPROVED последнего запроса задача переводится в RUNNING.
+- После CANCELLED последнего запроса задача переводится в CANCELLED.
+- После REJECTED запроса отдельного действия (action_type не равен PLAN_APPROVAL) задача переводится в FAILED.
+- REJECTED для PLAN_APPROVAL оставляет задачу в RUNNING на выходе из транзакции ApprovalManager; Orchestrator затем переводит её в CANCELLED в reject_plan().
 
 Ошибки: KeyError для неизвестного approval_id; ValueError для недопустимого решения, повторного решения или запрещённого повторного запроса; возможны ошибки sqlite3.
 
@@ -473,7 +479,7 @@ RunCommandTool не запускает команды самостоятельн
 - RunCommandTool интегрирован с ExecutionBackend и передаёт ему команды для выполнения в Docker с Workspace.
 - RunTestsTool вызывает RunCommandTool с фиксированной командой pytest и использует тот же Docker-путь.
 - ToolExecutor управляет разрешениями и вызывает инструменты; ExecutionBackend не принимает решений о пользовательских подтверждениях.
-- ToolExecutor пока не интегрирован с Orchestrator.
+- ToolExecutor включён в исполнительную цепочку через ToolExecutorAdapter, реализующий контракт Executor.
 - Исследование и интеграционные тесты не доказывают абсолютную защиту хоста от всех способов выхода из контейнера.
 
 Подробные команды, фактические результаты, ограничения и порядок воспроизведения приведены в `docs/EXECUTION_ISOLATION_RESEARCH.md`.
@@ -557,7 +563,7 @@ RunCommandTool не запускает команды самостоятельн
 - Интеграционные тесты проверяют фактическое выполнение в Docker, потоки вывода, код завершения, работу с Workspace, непривилегированного пользователя и отсутствие сети.
 - Ручные проверки ограничений изоляции и поведения Docker зафиксированы отдельно в docs/EXECUTION_ISOLATION_RESEARCH.md.
 
-**Статус:** самостоятельный ExecutionBackend реализован и используется RunCommandTool; RunTestsTool выполняет тесты через RunCommandTool и тот же Backend. ToolExecutor управляет разрешениями и вызывает инструменты. Интеграция ToolExecutor с Orchestrator остаётся отдельной задачей.
+**Статус:** самостоятельный ExecutionBackend реализован и используется RunCommandTool; RunTestsTool выполняет тесты через RunCommandTool и тот же Backend. ToolExecutor управляет разрешениями и вызывает инструменты. ToolExecutor подключён к Orchestrator через ToolExecutorAdapter.
 
 
 ### 3.7 ModelClient — клиент модели
@@ -956,7 +962,6 @@ ExecutionRecorder поддерживает несколько Execution для �
 
 - Полноценный автономный цикл с реальными Planner/Coder/Reviewer, работающими через ModelClient.
 - Автоматическое построение контекста задачи из файлов и состояния проекта.
-- Подключение реальных Planner/Reviewer на базе ModelClient и автоматическое построение контекста задачи из файлов и состояния проекта.
 - Расширение и уточнение политик разрешений за пределами текущего фиксированного набора инструментов.
 - Цикл coder → reviewer → coder с ограничением попыток и формальным условием выхода.
 - Автоматический вызов RecoveryManager при запуске приложения.
