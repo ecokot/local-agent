@@ -3,7 +3,7 @@ import sqlite3
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
-from typing import ClassVar, Self
+from typing import Any, ClassVar, Self
 from uuid import uuid4
 
 from local_agent.models import Task
@@ -208,15 +208,22 @@ class StateManager:
             self,
             task_id: str,
             revision: int,
-            plan: dict,
+            plan: dict[str, Any],
             approved: bool,
             feedback: str,
     ) -> None:
-        if not isinstance(revision, int) or isinstance(revision, bool) or revision < 0:
-            raise ValueError("Review revision must be a non-negative integer")
+        if (
+            not isinstance(revision, int)
+            or isinstance(revision, bool)
+            or revision < 0
+        ):
+            raise ValueError(
+                "Review revision must be a non-negative integer"
+            )
         if not isinstance(approved, bool):
             raise ValueError("Review approval must be a boolean")
 
+        self.get_task(task_id)
         self.connection.execute(
             """
             INSERT INTO review_history (
