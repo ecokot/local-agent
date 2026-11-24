@@ -156,8 +156,8 @@ def test_reviewer_rejects_failed_execution(tmp_path) -> None:
 
         review = orchestrator.execute_approved_plan(approval.approval_id)
 
-        assert isinstance(review, ReviewResult)
-        assert review.approved is False
+        assert isinstance(review, ExecutionResult)
+        assert review.success is False
         assert state_manager.get_state(approval.task_id) == TaskStatus.FAILED
 
 
@@ -324,7 +324,8 @@ def test_execution_failure_is_not_overridden_by_approved_review(
 
         review = orchestrator.execute_approved_plan(approval.approval_id)
 
-        assert review.approved is True
+        assert isinstance(review, ExecutionResult)
+        assert review.success is False
         assert state_manager.get_state(approval.task_id) == TaskStatus.FAILED
 
 
