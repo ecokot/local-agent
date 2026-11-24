@@ -3,7 +3,7 @@ import pytest
 from local_agent.agents.stubs import StubExecutor, StubPlanner, StubReviewer
 from local_agent.approval_manager import ApprovalManager
 from local_agent.models.agent import ExecutionResult, ReviewResult
-from local_agent.models.approval import ApprovalStatus
+from local_agent.models.approval import Approval, ApprovalStatus
 from local_agent.models.plan import Plan
 from local_agent.orchestrator import Orchestrator
 from local_agent.state_manager import StateManager, TaskStatus
