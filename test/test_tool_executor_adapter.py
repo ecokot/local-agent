@@ -36,6 +36,26 @@ class PassingVerificationExecutor:
         )
 
 
+class FailingVerificationExecutor:
+    def execute(self, plan):
+        results = tuple(
+            CriterionVerificationResult(
+                criterion_id=criterion.id,
+                criterion_type=criterion.type,
+                required=criterion.required,
+                passed=False,
+                status=VerificationStatus.FAILED,
+                details=VerificationDetails(),
+                diagnostic="Required file does not exist",
+            )
+            for criterion in plan.verification_criteria
+        )
+        return VerificationReport(
+            results=results,
+            all_required_passed=False,
+        )
+
+
 class FakeTool:
     def __init__(self, name):
         self.name = name
@@ -396,6 +416,42 @@ def test_user_interface_handles_plan_and_action_approvals(
     finally:
         close_environment(environment)
 
+
+
+
+def test_user_interface_reports_required_verification_failure_after_reviewer_approval(
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    environment = build_environment(tmp_path)
+    state, approvals, _, _, adapter, _task_id = environment
+
+    try:
+        orchestrator = Orchestrator(
+            state_manager=state,
+            approval_manager=approvals,
+            planner=StubPlanner(),
+            executor=adapter,
+            reviewer=RecordingReviewer(),
+            verification_executor=FailingVerificationExecutor(),
+        )
+        answers = iter(["y", "y"])
+        monkeypatch.setattr("builtins.input", lambda _: next(answers))
+
+        UserInterface(orchestrator, approvals)._run_task("Create a file")
+
+        output = capsys.readouterr().out
+        task = state.get_tasks()[-1]
+
+        assert "Решение Reviewer: одобрено" in output
+        assert "Статус задачи: FAILED" in output
+        assert "Диагностика: Required file does not exist" in output
+        assert "Ошибка выполнения:" in output
+        assert "Задача успешно завершена" not in output
+        assert task.status is TaskStatus.FAILED
+    finally:
+        close_environment(environment)
 
 
 class RevisingListPlanner:
