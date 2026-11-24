@@ -70,6 +70,13 @@ def test_prepare_task_creates_pending_plan_approval(tmp_path) -> None:
         assert approval.parameters["plan"]["summary"] == (
             "Plan for: Create a test file"
         )
+        assert approval.parameters["plan"]["verification_criteria"][0] == {
+            "id": "created-file",
+            "type": "file_exists",
+            "description": "Убедиться, что файл test.txt создан",
+            "required": True,
+            "parameters": {"path": "test.txt"},
+        }
         assert (
                 state_manager.get_state(approval.task_id)
                 == TaskStatus.WAITING_FOR_APPROVAL
@@ -130,6 +137,9 @@ def test_approved_plan_is_passed_to_executor_and_reviewer(tmp_path) -> None:
         assert executor.received_plan.summary == (
             "Plan for: Create a test file"
         )
+        assert executor.received_plan.verification_criteria == Plan.model_validate(
+            approval.parameters["plan"]
+        ).verification_criteria
 
         assert reviewer.received_plan is executor.received_plan
         assert isinstance(reviewer.received_result, ExecutionResult)
@@ -396,7 +406,6 @@ def test_multiple_tasks_can_wait_for_approval(tmp_path) -> None:
         )
 
 
-
 def test_reviewer_rejection_requests_revised_plan_approval(
         tmp_path,
 ) -> None:
@@ -423,7 +432,6 @@ def test_reviewer_rejection_requests_revised_plan_approval(
         )
 
 
-
 class RevisingPlanner(StubPlanner):
     def __init__(self):
         self.received_feedback = []
@@ -433,6 +441,7 @@ class RevisingPlanner(StubPlanner):
         return Plan(
             summary=f"Revision {len(self.received_feedback)}",
             steps=previous_plan.steps,
+            verification_criteria=previous_plan.verification_criteria,
         )
 
 
@@ -466,6 +475,9 @@ def test_reviewer_feedback_creates_new_pending_plan_approval(tmp_path):
         assert revised.action_type == "PLAN_APPROVAL"
         assert revised.status == ApprovalStatus.PENDING
         assert revised.parameters["revision"] == 1
+        assert revised.parameters["plan"]["verification_criteria"] == (
+            first.parameters["plan"]["verification_criteria"]
+        )
         assert planner.received_feedback == ["Add validation"]
         assert executor.calls == 1
         assert state.get_state(first.task_id) == TaskStatus.WAITING_FOR_APPROVAL
@@ -557,7 +569,6 @@ def test_revised_plan_approval_is_required_before_second_execution(tmp_path):
 
         assert executor.calls == 1
         assert state.get_state(initial.task_id) == TaskStatus.WAITING_FOR_APPROVAL
-
 
 
 class RaisingRevisingPlanner(StubPlanner):

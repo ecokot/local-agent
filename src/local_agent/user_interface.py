@@ -123,3 +123,18 @@ class UserInterface:
             print(f"\n{index}. {step.description}")
             print(f"   Действие: {step.action}")
             print(f"   Параметры: {step.parameters}")
+
+        print("\nКритерии проверки:")
+        for index, criterion in enumerate(
+            plan.verification_criteria, start=1
+        ):
+            requirement = (
+                "обязательный" if criterion.required else "необязательный"
+            )
+            print(
+                f"   {index}. [{criterion.id}] {criterion.description} "
+                f"({criterion.type}; {requirement})"
+            )
+            parameters = criterion.parameters.model_dump(mode="json")
+            if parameters:
+                print(f"      Параметры: {parameters}")

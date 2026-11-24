@@ -17,6 +17,8 @@ def test_stub_planner_creates_plan() -> None:
     assert plan.summary == "Plan for: Test task"
     assert len(plan.steps) == 1
     assert plan.steps[0].action == "create_file"
+    assert plan.verification_criteria[0].type == "file_exists"
+    assert plan.verification_criteria[0].parameters.path == "test.txt"
 
 
 def test_stub_executor_returns_success() -> None:
@@ -63,6 +65,7 @@ def test_get_stub_agents() -> None:
     assert executor is not None
     assert reviewer is not None
 
+
 def test_stub_planner_revises_plan() -> None:
     planner = StubPlanner()
     task = Task(task_id="test-task", description="Test task", status="CREATED")
@@ -76,3 +79,7 @@ def test_stub_planner_revises_plan() -> None:
 
     assert revised_plan.summary == "Revised plan for: Test task"
     assert revised_plan.steps == previous_plan.steps
+    assert (
+        revised_plan.verification_criteria
+        == previous_plan.verification_criteria
+    )
