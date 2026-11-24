@@ -110,7 +110,10 @@ class UserInterface:
 
         revision = plan_approval.parameters.get("revision", 0)
         if revision:
-            print(f"\nИзменённый план (пересмотр {revision}): {plan.summary}")
+            print(
+                f"\nИзменённый план (пересмотр {revision}): "
+                f"{plan.summary}"
+            )
         else:
             print(f"\nПлан: {plan.summary}")
 
