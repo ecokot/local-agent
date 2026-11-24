@@ -1,13 +1,13 @@
 from local_agent.agents.stubs import StubPlanner
 from local_agent.agents.tool_executor_adapter import ToolExecutorAdapter
-from local_agent.models.agent import ReviewResult
-from local_agent.orchestrator import Orchestrator
-from local_agent.user_interface import UserInterface
 from local_agent.approval_manager import ApprovalManager
 from local_agent.execution.recorder import ExecutionRecorder
 from local_agent.execution.tool_executor import ToolExecutor
+from local_agent.models.agent import ReviewResult
 from local_agent.models.plan import Plan
+from local_agent.orchestrator import Orchestrator
 from local_agent.state_manager import StateManager, TaskStatus
+from local_agent.user_interface import UserInterface
 
 
 class FakeTool:
@@ -129,7 +129,7 @@ def test_rejected_action_marks_task_failed_and_never_runs_tool(tmp_path):
 
 def test_unknown_tool_fails_without_running_any_tool(tmp_path):
     environment = build_environment(tmp_path)
-    state, _, _, tools, adapter, task_id = environment
+    _, _, _, tools, adapter, task_id = environment
 
     try:
         plan = Plan(
