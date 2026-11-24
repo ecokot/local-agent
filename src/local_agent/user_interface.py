@@ -1,5 +1,5 @@
-
 from local_agent.approval_manager import ApprovalManager
+from local_agent.models.agent import ExecutionResult, ReviewResult
 from local_agent.models.plan import Plan
 from local_agent.orchestrator import Orchestrator
 
@@ -28,11 +28,12 @@ class UserInterface:
                 continue
 
             self._run_task(description)
+
     def _run_task(self, description: str) -> None:
-        approval = self.orchestrator.prepare_task(description)
+        plan_approval = self.orchestrator.prepare_task(description)
 
         plan = Plan.model_validate(
-            approval.parameters["plan"]
+            plan_approval.parameters["plan"]
         )
 
         print(f"\nПлан: {plan.summary}")
@@ -44,16 +45,51 @@ class UserInterface:
 
         answer = input("\nВыполнить план? [y/n]: ").strip().lower()
 
-        if answer == "y":
-            self.approval_manager.approve(approval.approval_id)
+        if answer != "y":
+            self.orchestrator.reject_plan(plan_approval.approval_id)
+            print("\nПлан отклонён. Задача отменена.")
+            return
 
-            review = self.orchestrator.execute_approved_plan(
-                approval.approval_id
+        self.approval_manager.approve(plan_approval.approval_id)
+        result = self.orchestrator.execute_approved_plan(
+            plan_approval.approval_id
+        )
+
+        while isinstance(result, ExecutionResult) and result.waiting_for_approval:
+            pending = self.approval_manager.get_approval(
+                result.pending_approval_id
             )
 
-            print(f"\nРезультат проверки: {review.approved}")
-            print(f"Комментарий: {review.feedback}")
+            print("\nТребуется подтверждение действия:")
+            print(f"   Тип: {pending.action_type}")
+            print(f"   Параметры: {pending.parameters}")
 
-        else:
-            self.orchestrator.reject_plan(approval.approval_id)
-            print("\nПлан отклонён. Задача отменена.")
+            decision = input(
+                "Разрешить действие? [y/n/c] "
+            ).strip().lower()
+
+            if decision == "y":
+                self.approval_manager.approve(pending.approval_id)
+            elif decision == "n":
+                self.approval_manager.reject(pending.approval_id)
+                print("\nДействие отклонено. Задача завершена с ошибкой.")
+                return
+            else:
+                self.approval_manager.cancel(pending.approval_id)
+                print("\nДействие отменено. Задача отменена.")
+                return
+
+            result = self.orchestrator.execute_approved_plan(
+                plan_approval.approval_id
+            )
+
+        if isinstance(result, ReviewResult):
+            print(f"\nРезультат проверки: {result.approved}")
+            print(f"Комментарий: {result.feedback}")
+            return
+
+        print("\nВыполнение не завершено успешно.")
+        if result.output:
+            print(result.output)
+        for error in result.errors:
+            print(f"Ошибка: {error}")
