@@ -270,3 +270,13 @@ def test_transition_rejects_active_transaction(tmp_path):
         manager.connection.rollback()
 
         assert manager.get_state(task_id) == TaskStatus.CREATED
+
+
+
+def test_created_task_can_transition_to_failed(tmp_path):
+    with StateManager(tmp_path / "agent.db") as manager:
+        task_id = manager.create_task("Planner failed")
+
+        manager.transition(task_id, TaskStatus.FAILED)
+
+        assert manager.get_state(task_id) == TaskStatus.FAILED
