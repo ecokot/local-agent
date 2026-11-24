@@ -239,7 +239,7 @@ class ApprovalManager:
         try:
             row = self.connection.execute(
                 """
-                SELECT task_id
+                SELECT task_id, action_type
                 FROM approvals
                 WHERE approval_id = ?
                   AND status = ?
@@ -294,15 +294,13 @@ class ApprovalManager:
                         # Rejecting the overall plan is finalized by Orchestrator.
                         next_task_status = (
                             TaskStatus.RUNNING
-                            if self.get_approval(approval_id).action_type
-                            == "PLAN_APPROVAL"
+                            if row["action_type"] == "PLAN_APPROVAL"
                             else TaskStatus.FAILED
                         )
                     else:
                         next_task_status = (
                             TaskStatus.RUNNING
-                            if self.get_approval(approval_id).action_type
-                            == "PLAN_APPROVAL"
+                            if row["action_type"] == "PLAN_APPROVAL"
                             else TaskStatus.CANCELLED
                         )
 
