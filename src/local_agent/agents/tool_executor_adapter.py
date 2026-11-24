@@ -21,7 +21,6 @@ class _TaskProgress:
     next_step: int = 0
     step_results: list[dict[str, Any]] = field(default_factory=list)
     completed_steps: list[_CompletedStep] = field(default_factory=list)
-    reused_step_indexes: set[int] = field(default_factory=set)
 
 
 class ToolExecutorAdapter:
@@ -59,21 +58,30 @@ class ToolExecutorAdapter:
                     ],
                     step_results=deepcopy(progress.step_results),
                 )
+            reusable_prefix = 0
+            for old_step, new_step in zip(progress.plan.steps, plan.steps):
+                if (
+                    reusable_prefix >= len(progress.completed_steps)
+                    or self._step_signature(old_step)
+                    != self._step_signature(new_step)
+                ):
+                    break
+                reusable_prefix += 1
+
+            progress.completed_steps = progress.completed_steps[:reusable_prefix]
             progress.plan = plan.model_copy(deep=True)
             progress.next_step = 0
             progress.step_results = []
-            progress.reused_step_indexes.clear()
 
         while progress.next_step < len(progress.plan.steps):
             step_index = progress.next_step
             step = progress.plan.steps[step_index]
             signature = self._step_signature(step)
-            completed = self._find_completed_step(
-                progress,
-                signature,
-            )
-
-            if completed is not None:
+            if (
+                step_index < len(progress.completed_steps)
+                and progress.completed_steps[step_index].signature == signature
+            ):
+                completed = progress.completed_steps[step_index].result
                 progress.step_results.append(
                     self._result_for_step(step, step_index, completed)
                 )
@@ -126,9 +134,6 @@ class ToolExecutorAdapter:
             progress.completed_steps.append(
                 _CompletedStep(signature=signature, result=deepcopy(result))
             )
-            progress.reused_step_indexes.add(
-                len(progress.completed_steps) - 1
-            )
             progress.step_results.append(result)
             progress.next_step += 1
 
@@ -151,19 +156,9 @@ class ToolExecutorAdapter:
             ),
         )
 
-    @staticmethod
-    def _find_completed_step(
-        progress: _TaskProgress,
-        signature: tuple[str, str],
-    ) -> dict[str, Any] | None:
-        for completed_index, completed in enumerate(progress.completed_steps):
-            if (
-                completed.signature == signature
-                and completed_index not in progress.reused_step_indexes
-            ):
-                progress.reused_step_indexes.add(completed_index)
-                return deepcopy(completed.result)
-        return None
+    def clear_progress(self, task_id: str) -> None:
+        """Release in-memory progress after a task reaches a final state."""
+        self._progress.pop(task_id, None)
 
     @staticmethod
     def _result_for_step(
