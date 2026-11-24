@@ -279,10 +279,10 @@ def test_multiple_criteria_run_and_keep_success_after_failure(tools):
     assert report.all_required_passed is False
 
 
-def test_optional_failure_does_not_fail_overall_result(tools):
+def test_optional_error_does_not_fail_overall_result(tools):
     executor, pytest_tool, command_tool, _ = tools
     pytest_tool.execute.return_value = make_pytest_result()
-    command_tool.execute.return_value = make_command_result(exit_code=1)
+    command_tool.execute.side_effect = RunCommandError("Ruff unavailable")
 
     report = executor.execute(
         make_plan([
@@ -291,6 +291,7 @@ def test_optional_failure_does_not_fail_overall_result(tools):
         ])
     )
 
+    assert report.results[1].status is VerificationStatus.ERROR
     assert report.results[1].passed is False
     assert report.results[1].required is False
     assert report.all_required_passed is True
