@@ -288,21 +288,35 @@ class ApprovalManager:
                 ).fetchone()[0]
 
                 if pending == 0:
-                    if status == ApprovalStatus.APPROVED:
-                        next_task_status = TaskStatus.RUNNING
-                    elif status == ApprovalStatus.REJECTED:
-                        # Rejecting the overall plan is finalized by Orchestrator.
-                        next_task_status = (
-                            TaskStatus.RUNNING
-                            if row["action_type"] == "PLAN_APPROVAL"
-                            else TaskStatus.FAILED
-                        )
+                    decisions = self.connection.execute(
+                        """
+                        SELECT action_type, status
+                        FROM approvals
+                        WHERE task_id = ?
+                          AND status IN (?, ?)
+                        """,
+                        (
+                            task_id,
+                            ApprovalStatus.REJECTED.value,
+                            ApprovalStatus.CANCELLED.value,
+                        ),
+                    ).fetchall()
+
+                    if any(
+                        item["status"] == ApprovalStatus.CANCELLED.value
+                        for item in decisions
+                    ):
+                        next_task_status = TaskStatus.CANCELLED
+                    elif any(
+                        item["status"] == ApprovalStatus.REJECTED.value
+                        and item["action_type"] != "PLAN_APPROVAL"
+                        for item in decisions
+                    ):
+                        next_task_status = TaskStatus.FAILED
                     else:
-                        next_task_status = (
-                            TaskStatus.RUNNING
-                            if row["action_type"] == "PLAN_APPROVAL"
-                            else TaskStatus.CANCELLED
-                        )
+                        # A rejected plan is finalized as CANCELLED by
+                        # Orchestrator after this transaction commits.
+                        next_task_status = TaskStatus.RUNNING
 
                     self.state_manager.transition_in_transaction(
                         task_id,
