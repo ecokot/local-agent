@@ -5,7 +5,7 @@
 > **Проект:** `local-agent`
 > **Репозиторий:** https://github.com/ecokot/local-agent
 > **Основная ветка:** `main`
-> **Коммит проверенной версии кода:** `2a3fe35`
+> **Коммит проверенной версии кода:** `2d7acfe`
 > **Актуальность:** 2026-11-24
 > **Среда:** Windows 11, Python 3.12+, `uv`, PowerShell, PyCharm
 >
@@ -909,7 +909,7 @@ ExecutionRecorder поддерживает несколько Execution для �
 | test/test_run_command.py                                | Unit-тесты RunCommandTool: передача команды Backend, преобразование результата, ограничение вывода и обработка ошибок Backend.   |
 | test/test_run_tests.py                                   | Unit-тесты RunTestsTool: фиксированная команда pytest, преобразование результата и обработка ошибок RunCommandTool.              |
 | test/test_execution_backend.py                         | Unit-тесты ExecutionBackend: формирование команды Docker, валидация параметров, обработка ошибок, тайм-аут и очистка контейнера. |
-| test/integration/test_execution_backend_integration.py | Docker integration tests ExecutionBackend: выполнение команд, stdout/stderr, exit code, Workspace, UID/GID, ограничения контейнера и очистка после выполнения/тайм-аута.                    |
+| test/integration/test_execution_backend_integration.py | Docker integration tests: выполнение команд через ExecutionBackend, stdout/stderr, exit code, Workspace, UID/GID, ограничения контейнера, очистка контейнера, а также сквозная проверка RunCommandTool и RunTestsTool через реальный Docker Backend. |
 
 Тесты не заменяют проверку фактической интеграции. Наличие отдельных тестов ModelClient, ContextManager и ExecutionRecorder не доказывает, что эти компоненты вызываются из Orchestrator.
 
