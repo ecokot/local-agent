@@ -14,7 +14,6 @@ from local_agent.execution.tools.run_tests import (
 )
 from local_agent.execution.verification import (
     RUFF_COMMAND,
-    CriterionVerificationResult,
     VerificationExecutor,
     VerificationStatus,
 )
@@ -224,13 +223,19 @@ def test_directory_instead_of_file_is_failure(tools):
     assert result.diagnostic == "Path exists but is not a regular file"
 
 
-def test_unsafe_path_is_reported_and_does_not_escape_workspace(tools):
+def test_symlink_path_is_rejected_by_workspace(tools):
     executor, _, _, root = tools
-    outside = root.parent / "outside-secret.txt"
-    outside.write_text("secret", encoding="utf-8")
+    outside = root.parent / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("secret", encoding="utf-8")
+    link = root / "link"
+    try:
+        link.symlink_to(outside, target_is_directory=True)
+    except (OSError, NotImplementedError):
+        pytest.skip("Symbolic links are unavailable")
 
     result = executor.execute(
-        make_plan([file_criterion("../outside-secret.txt")])
+        make_plan([file_criterion("link/secret.txt")])
     ).results[0]
 
     assert result.passed is False
