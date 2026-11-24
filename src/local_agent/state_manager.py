@@ -22,6 +22,7 @@ class StateManager:
             TaskStatus.RUNNING,
             TaskStatus.WAITING_FOR_APPROVAL,
             TaskStatus.CANCELLED,
+            TaskStatus.FAILED,
         },
         TaskStatus.RUNNING: {
             TaskStatus.WAITING_FOR_APPROVAL,
