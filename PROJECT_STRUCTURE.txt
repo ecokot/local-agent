@@ -1,10 +1,27 @@
-ЭТАП: Этап 8.В
-КОММИТ: 2112d39
-ДАТА: 2026-11-24
+﻿ЭТАП: Этап 9.Б
+КОММИТ: b0858da
+ДАТА: 2026-11-25 15:40:18
 
 СТРУКТУРА ПРОЕКТА
 local-agent
++--- .gigaide
+|   \--- gigaide.properties
++--- data
+|   +--- traces
+|   |   \--- f77ae6fd-9826-4a9d-a2cc-7db6cc8c1468.jsonl
+|   \--- agent.db
 +--- docs
+|   +--- stage-09
+|   |   +--- report
+|   |   |   +--- LA-9A-01.md
+|   |   |   \--- LA-9B-01.md
+|   |   \--- task
+|   |       +--- LA-9A-01.md
+|   |       +--- LA-9B-01.md
+|   |       \--- LA-9B-02.md
+|   +--- templates
+|   |   +--- REPORT_TEMPLATE.md
+|   |   \--- TASK_TEMPLATE.md
 |   +--- DEVELOPMENT_HISTORY.md
 |   +--- EXECUTION_BACKEND.md
 |   +--- EXECUTION_ISOLATION_RESEARCH.md
@@ -18,8 +35,10 @@ local-agent
 |   |   +--- execution
 |   |   |   +--- tools
 |   |   |   |   +--- __init__.py
+|   |   |   |   +--- _windows_runner.py
 |   |   |   |   +--- create_file.py
 |   |   |   |   +--- get_diff.py
+|   |   |   |   +--- git.py
 |   |   |   |   +--- list_directory.py
 |   |   |   |   +--- read_file.py
 |   |   |   |   +--- run_command.py
@@ -51,7 +70,8 @@ local-agent
 |   \--- __init__.py
 +--- test
 |   +--- integration
-|   |   \--- test_execution_backend_integration.py
+|   |   +--- test_execution_backend_integration.py
+|   |   \--- test_git_tool_windows.py
 |   +--- test_agent_models.py
 |   +--- test_agent_protocols.py
 |   +--- test_agent_stubs.py
@@ -62,6 +82,7 @@ local-agent
 |   +--- test_execution_backend.py
 |   +--- test_execution_recorder.py
 |   +--- test_get_diff.py
+|   +--- test_git_tool.py
 |   +--- test_list_directory.py
 |   +--- test_model_client.py
 |   +--- test_model_router.py
@@ -74,10 +95,11 @@ local-agent
 |   +--- test_run_command.py
 |   +--- test_run_tests.py
 |   +--- test_state_manager.py
-|   +--- test_tool_executor_adapter.py
 |   +--- test_tool_executor.py
+|   +--- test_tool_executor_adapter.py
 |   +--- test_user_interface.py
 |   +--- test_verification_executor.py
+|   +--- test_windows_runner.py
 |   +--- test_workspace.py
 |   \--- test_write_file.py
 +--- .gitignore
