@@ -46,10 +46,24 @@ def test_timeout_terminates_process_tree(tmp_path):
     )
     child_script = membership_script + "; import time; time.sleep(60)"
     parent_script = (
-        "import pathlib,subprocess,sys,time; "
-        "p=subprocess.Popen([sys.executable,'-c',sys.argv[1],sys.argv[3],sys.argv[4]], close_fds=False); "
-        "pathlib.Path(sys.argv[2]).write_text(str(p.pid)); "
-        "exec(sys.argv[5]); "
+        "import ctypes,pathlib,subprocess,sys,time; "
+        "p=subprocess.Popen([sys.executable,'-c',sys.argv[0],sys.argv[3],sys.argv[4]], close_fds=False); "
+        "pathlib.Path(sys.argv[1]).write_text(str(p.pid)); "
+        "k=ctypes.WinDLL('kernel32',use_last_error=True); "
+        "h=k.OpenProcess(0x1000,False,os.getpid()) if False else None; "
+        "import os; "
+        "h=k.OpenProcess(0x1000,False,os.getpid()); "
+        "assert h, 'parent OpenProcess failed: '+str(ctypes.get_last_error()); "
+        "open_job=k.OpenJobObjectW; open_job.restype=ctypes.c_void_p; "
+        "open_job.argtypes=[ctypes.c_ulong,ctypes.c_int,ctypes.c_wchar_p]; "
+        "j=open_job(0x0004,False,sys.argv[4]); "
+        "assert j, 'parent OpenJobObjectW failed: '+str(ctypes.get_last_error()); "
+        "f=k.IsProcessInJob; f.restype=ctypes.c_int; "
+        "f.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.POINTER(ctypes.c_int)]; "
+        "inside=ctypes.c_int(); "
+        "ok=f(h,j,ctypes.byref(inside)); "
+        "error=ctypes.get_last_error(); k.CloseHandle(j); k.CloseHandle(h); "
+        "open(sys.argv[2],'w').write(str((ok,inside.value,error))); "
         "time.sleep(60)"
     )
     result = run_windows(
@@ -59,9 +73,9 @@ def test_timeout_terminates_process_tree(tmp_path):
             parent_script,
             child_script,
             str(pid_file),
+            str(parent_membership_file),
             str(child_membership_file),
             job_name,
-            str(parent_membership_file),
         ),
         str(tmp_path),
         3,
