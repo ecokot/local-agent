@@ -156,7 +156,7 @@ def run_windows(
                     buffers[name].extend(chunk.raw[:min(remaining, count.value)])
                 if count.value > max(remaining, 0):
                     truncated[name] = True
-        except Exception as error:
+        except WindowsRunnerError as error:
             reader_errors.append(error)
 
     try:
