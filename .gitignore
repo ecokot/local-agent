@@ -12,6 +12,7 @@ venv/
 # IDE
 .idea/
 .vscode/
+.gigaide/
 
 # Test and lint caches
 .pytest_cache/
