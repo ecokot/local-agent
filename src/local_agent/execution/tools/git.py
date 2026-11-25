@@ -4,8 +4,8 @@ from __future__ import annotations
 import math
 import os
 import shutil
-from dataclasses import dataclass
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 from local_agent.execution.tools._windows_runner import (
