@@ -932,3 +932,54 @@ PR оставался объединяемым. По явному разреше
 25.11.2026 (merge commit `4ce4f6905b62271ccf69df4e89e78f9026807d76`).
 Реализация GitTool не начиналась и остаётся заблокированной до
 отдельного утверждения плана подэтапов 9.Б–9.Д.
+
+
+---
+
+## Подэтап 9.Б. Реализация read-only GitTool (LA-9B-01, LA-9B-02, LA-9B-03)
+
+**Дата приёмки и объединения:** 25.11.2026.  
+**Решение:** подэтап 9.Б принят после независимой проверки реализации, тестов и отчёта; PR №7 объединён в `main` методом squash по явному разрешению пользователя.
+
+### Результат
+
+Добавлен самостоятельный `GitTool` для чтения состояния локального Git-репозитория в пределах `Workspace`. Реализованы восемь read-only операций: `status`, `branch`, `head`, `branches`, `log`, `diff`, `staged_diff`, `changed_files`. Проверяются наличие Git, тип Workspace и совпадение корня репозитория с `Workspace.root`; аргументы фиксированы, shell не используется, pathspec работает в literal mode.
+
+Для Windows реализован runner на Win32 API: процесс создаётся suspended, назначается в Job Object до ResumeThread, stdout/stderr читаются параллельно с ограничением сохраняемого объёма, предусмотрены timeout, reader cancellation и cleanup. В LA-9B-03 добавлены `STARTUPINFOEXW` и `PROC_THREAD_ATTRIBUTE_HANDLE_LIST`; дочернему Git-процессу разрешено наследовать только три handles стандартных потоков (stdin, stdout write, stderr write). Добавлен Windows integration test, проверяющий, что посторонний inheritable handle родительского процесса не наследуется.
+
+В ходе LA-9B-02 исправлены cleanup/error paths и обработка reader lifecycle; исправлен разбор NUL-разделённой записи rename в porcelain v2. В отчёте зафиксированы ограничения тестирования имён файлов, которые Windows не позволяет создать.
+
+### Изменённые файлы
+
+- `.gitignore`;
+- `src/local_agent/execution/tools/git.py`;
+- `src/local_agent/execution/tools/_windows_runner.py`;
+- `test/test_git_tool.py`;
+- `test/test_windows_runner.py`;
+- `test/integration/test_git_tool_windows.py`;
+- `docs/stage-09/report/LA-9B-01.md`.
+
+Постановка LA-9B-02 хранится отдельно в `docs/stage-09/task/LA-9B-02.md` в `main`; она не была частью feature branch, поскольку была добавлена в main после её ответвления.
+
+### Проверки
+
+**Все тесты и команды на Windows 11 запускал пользователь.** Планировщик проверил исходники, тесты и отчёт в GitHub, но не запускал pytest/Ruff в пользовательской среде.
+
+- Полный `uv run pytest -v`: **458 passed, 3 skipped**.
+- `uv run ruff check .`: **All checks passed**.
+- `git diff --check origin/main...HEAD`: без замечаний.
+- `git status`: рабочее дерево чистое, ветка синхронизирована с origin на момент передачи PR.
+
+### Независимая проверка и объединение
+
+- Ветка: `stage-9b-git-tool`.
+- Проверенный HEAD: `78856e8ed9d4db1b1fc15166e8b3f89a786902ff`.
+- PR №7: https://github.com/ecokot/local-agent/pull/7.
+- Base: `main`; head: `stage-9b-git-tool`.
+- В PR: 7 файлов, 2158 добавлений, 0 удалений.
+- Открытых review threads и замечаний, блокирующих merge, не обнаружено; GitHub подтвердил mergeable.
+- PR №7 объединён методом squash 25.11.2026.
+- Merge commit: `efb45cdac408b5fd7939cc3cd6c4cfbe79f44aa1`.
+- После объединения пользователь синхронизировал локальную `main` через `git pull origin main`; подтвердил `up to date with origin/main` и `working tree clean`.
+
+**Итог:** подэтап 9.Б принят и объединён в `main`. GitTool остаётся самостоятельным и read-only; интеграция в ToolExecutor/Adapter относится к следующему подэтапу 9.В. Изменяющие Git-операции и approval snapshot относятся к 9.Г.
