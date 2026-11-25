@@ -69,7 +69,7 @@ def test_timeout_terminates_process_tree(tmp_path):
     assert pid_file.exists()
     assert parent_membership_file.exists()
     assert child_membership_file.exists()
-    assert parent_membership_file.read_text() == str(int(parent_membership_file.read_text()))
+    assert parent_membership_file.read_text().isdigit(), 'parent PID was not recorded'
     child_pid = int(pid_file.read_text())
     assert child_membership_file.read_text() == str(child_pid)
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
