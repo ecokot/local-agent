@@ -5,8 +5,8 @@ import ctypes
 import os
 import threading
 import uuid
-from dataclasses import dataclass
 from ctypes import wintypes
+from dataclasses import dataclass
 
 MAX_OUTPUT_SIZE = 1024 * 1024
 CLEANUP_TIMEOUT = 2.0
@@ -156,7 +156,7 @@ def run_windows(
                     buffers[name].extend(chunk.raw[:min(remaining, count.value)])
                 if count.value > max(remaining, 0):
                     truncated[name] = True
-        except BaseException as error:
+        except Exception as error:
             reader_errors.append(error)
 
     try:
