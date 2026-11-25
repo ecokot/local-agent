@@ -76,6 +76,12 @@ def run_windows(
             ("hStdInput", HANDLE), ("hStdOutput", HANDLE), ("hStdError", HANDLE),
         ]
 
+    class STARTUPINFOEXW(ctypes.Structure):
+        _fields_ = [
+            ("StartupInfo", STARTUPINFOW),
+            ("lpAttributeList", wintypes.LPVOID),
+        ]
+
     class PROCESS_INFORMATION(ctypes.Structure):
         _fields_ = [
             ("hProcess", HANDLE), ("hThread", HANDLE),
@@ -125,13 +131,29 @@ def run_windows(
     SetInformationJobObject = api(
         "SetInformationJobObject", BOOL, [HANDLE, ctypes.c_int, wintypes.LPVOID, DWORD]
     )
+    InitializeProcThreadAttributeList = api(
+        "InitializeProcThreadAttributeList",
+        BOOL,
+        [wintypes.LPVOID, DWORD, DWORD, ctypes.POINTER(ctypes.c_size_t)],
+    )
+    UpdateProcThreadAttribute = api(
+        "UpdateProcThreadAttribute",
+        BOOL,
+        [
+            wintypes.LPVOID, DWORD, ctypes.c_size_t, wintypes.LPVOID,
+            ctypes.c_size_t, wintypes.LPVOID, ctypes.POINTER(ctypes.c_size_t),
+        ],
+    )
+    DeleteProcThreadAttributeList = api(
+        "DeleteProcThreadAttributeList", None, [wintypes.LPVOID]
+    )
     CreateProcessW = api(
         "CreateProcessW",
         BOOL,
         [
             wintypes.LPCWSTR, wintypes.LPWSTR, wintypes.LPVOID, wintypes.LPVOID,
             BOOL, DWORD, wintypes.LPVOID, wintypes.LPCWSTR,
-            ctypes.POINTER(STARTUPINFOW), ctypes.POINTER(PROCESS_INFORMATION),
+            ctypes.POINTER(STARTUPINFOEXW), ctypes.POINTER(PROCESS_INFORMATION),
         ],
     )
     AssignProcessToJobObject = api("AssignProcessToJobObject", BOOL, [HANDLE, HANDLE])
@@ -157,6 +179,10 @@ def run_windows(
         job_name = f"LocalAgent-{os.getpid()}-{uuid.uuid4().hex}"
 
     job = None
+    attribute_list_buffer = None
+    attribute_list = None
+    attribute_list_initialized = False
+    inherited_handle_array = None
     process = PROCESS_INFORMATION()
     stdin_handle = None
     read_handles: list[int] = []
@@ -317,25 +343,76 @@ def run_windows(
             "SetInformationJobObject",
         )
 
-        startup = STARTUPINFOW()
-        startup.cb = ctypes.sizeof(startup)
-        startup.dwFlags = 0x00000100  # STARTF_USESTDHANDLES
+        startup = STARTUPINFOEXW()
+        startup.StartupInfo.cb = ctypes.sizeof(startup)
+        startup.StartupInfo.dwFlags = 0x00000100  # STARTF_USESTDHANDLES
         stdin_handle = own(
             CreateFileW("NUL", 0x80000000, 0x00000001 | 0x00000002, None, 3, 0x00000080, None),
             "stdin",
         )
         check(stdin_handle is not None, "CreateFileW(NUL)")
         check(SetHandleInformation(stdin_handle, 1, 1), "SetHandleInformation(stdin)")
-        startup.hStdInput = stdin_handle
-        startup.hStdOutput = write_handles[0]
-        startup.hStdError = write_handles[1]
+        startup.StartupInfo.hStdInput = stdin_handle
+        startup.StartupInfo.hStdOutput = write_handles[0]
+        startup.StartupInfo.hStdError = write_handles[1]
+
+        # The child may inherit only the three handles used for standard I/O.
+        inherited_handles = (stdin_handle, write_handles[0], write_handles[1])
+        inherited_handle_array = (HANDLE * len(inherited_handles))(*inherited_handles)
+        attribute_list_size = ctypes.c_size_t()
+        if InitializeProcThreadAttributeList(
+            None, 1, 0, ctypes.byref(attribute_list_size)
+        ):
+            raise WindowsRunnerError(
+                "InitializeProcThreadAttributeList size query unexpectedly succeeded"
+            )
+        size_error = ctypes.get_last_error()
+        if size_error != 122:  # ERROR_INSUFFICIENT_BUFFER
+            raise WindowsRunnerError(
+                "InitializeProcThreadAttributeList size query failed: "
+                f"{ctypes.WinError(size_error)}"
+            )
+        if attribute_list_size.value <= 0:
+            raise WindowsRunnerError(
+                "InitializeProcThreadAttributeList returned an invalid buffer size"
+            )
+        attribute_list_buffer = ctypes.create_string_buffer(attribute_list_size.value)
+        attribute_list = ctypes.cast(attribute_list_buffer, wintypes.LPVOID)
+        check(
+            InitializeProcThreadAttributeList(
+                attribute_list, 1, 0, ctypes.byref(attribute_list_size)
+            ),
+            "InitializeProcThreadAttributeList",
+        )
+        attribute_list_initialized = True
+        check(
+            UpdateProcThreadAttribute(
+                attribute_list,
+                0,
+                0x00020002,  # PROC_THREAD_ATTRIBUTE_HANDLE_LIST
+                ctypes.cast(inherited_handle_array, wintypes.LPVOID),
+                ctypes.sizeof(inherited_handle_array),
+                None,
+                None,
+            ),
+            "UpdateProcThreadAttribute(HANDLE_LIST)",
+        )
+        startup.lpAttributeList = attribute_list
         command_line = ctypes.create_unicode_buffer(
             subprocess.list2cmdline([executable, *arguments])
         )
         check(
             CreateProcessW(
-                executable, command_line, None, None, True, 0x00000004,
-                None, cwd, ctypes.byref(startup), ctypes.byref(process),
+                executable,
+                command_line,
+                None,
+                None,
+                True,
+                0x00000004 | 0x00080000,  # CREATE_SUSPENDED | EXTENDED_STARTUPINFO_PRESENT
+                None,
+                cwd,
+                ctypes.byref(startup),
+                ctypes.byref(process),
             ),
             "CreateProcessW(CREATE_SUSPENDED)",
         )
@@ -469,6 +546,17 @@ def run_windows(
             for error in reader_errors
         )
     finally:
+        if attribute_list_initialized:
+            try:
+                DeleteProcThreadAttributeList(attribute_list)
+            except Exception as error:  # noqa: BLE001
+                cleanup_errors.append(
+                    f"DeleteProcThreadAttributeList raised: {error!r}"
+                )
+            attribute_list_initialized = False
+        attribute_list = None
+        attribute_list_buffer = None
+        inherited_handle_array = None
         if job:
             close_owned(job, "Job Object")
         for handle, label in tuple(owned_handles.items()):
