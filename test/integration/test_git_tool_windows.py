@@ -57,6 +57,7 @@ def test_runner_drains_both_streams_and_bounds_saved_output():
 def test_timeout_terminates_process_tree(tmp_path):
     parent_info_file = tmp_path / "parent-job.json"
     child_info_file = tmp_path / "child-job.json"
+    job_name = f"LocalAgent-Test-{os.getpid()}-{tmp_path.name}"
 
     job_info_code = """
 import ctypes
@@ -75,20 +76,43 @@ class Basic(ctypes.Structure):
     ]
 
 kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+open_job = kernel32.OpenJobObjectW
+open_job.restype = ctypes.c_void_p
+open_job.argtypes = [ctypes.c_ulong, ctypes.c_int, ctypes.c_wchar_p]
 query = kernel32.QueryInformationJobObject
 query.restype = ctypes.c_int
 query.argtypes = [
     ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p,
     ctypes.c_ulong, ctypes.c_void_p,
 ]
+is_in_job = kernel32.IsProcessInJob
+is_in_job.restype = ctypes.c_int
+is_in_job.argtypes = [ctypes.c_void_p, ctypes.c_void_p, ctypes.POINTER(ctypes.c_int)]
+close = kernel32.CloseHandle
+close.argtypes = [ctypes.c_void_p]
+
+job = open_job(0x0004, False, sys.argv[-1])  # JOB_OBJECT_QUERY
+open_error = 0 if job else ctypes.get_last_error()
 info = Basic()
-ok = bool(query(None, 2, ctypes.byref(info), ctypes.sizeof(info), None))
+query_ok = bool(job) and bool(
+    query(job, 2, ctypes.byref(info), ctypes.sizeof(info), None)
+)
+membership = ctypes.c_int()
+membership_ok = bool(job) and bool(
+    is_in_job(kernel32.GetCurrentProcess(), job, ctypes.byref(membership))
+)
 job_info = {
     "pid": os.getpid(),
-    "query_ok": ok,
-    "error": 0 if ok else ctypes.get_last_error(),
-    "limit_flags": int(info.flags) if ok else 0,
+    "open_ok": bool(job),
+    "open_error": open_error,
+    "query_ok": query_ok,
+    "query_error": 0 if query_ok else ctypes.get_last_error(),
+    "limit_flags": int(info.flags) if query_ok else 0,
+    "membership_query_ok": membership_ok,
+    "is_in_runner_job": bool(membership.value) if membership_ok else None,
 }
+if job:
+    close(job)
 """
 
     child_script = (
@@ -101,16 +125,15 @@ time.sleep(60)
     )
     parent_script = (
         """
-import pathlib
 import subprocess
 import sys
-import time
 
-subprocess.Popen([sys.executable, "-c", sys.argv[1], sys.argv[3]])
+subprocess.Popen([sys.executable, "-c", sys.argv[1], sys.argv[3], sys.argv[4]])
 """
         + job_info_code
         + """
 pathlib.Path(sys.argv[2]).write_text(json.dumps(job_info))
+import time
 time.sleep(60)
 """
     )
@@ -120,10 +143,11 @@ time.sleep(60)
         sys.executable,
         (
             "-c", parent_script, child_script,
-            str(parent_info_file), str(child_info_file),
+            str(parent_info_file), str(child_info_file), job_name,
         ),
         str(tmp_path),
         3,
+        job_name=job_name,
     )
 
     assert result.timed_out, result.stderr.decode(errors="replace")
@@ -132,6 +156,10 @@ time.sleep(60)
     parent_info = json.loads(parent_info_file.read_text())
     child_info = json.loads(child_info_file.read_text())
     child_pid = child_info["pid"]
+    assert child_info["open_ok"] and child_info["query_ok"], (
+        f"child could not query runner Job Object: {child_info}; "
+        f"parent_job={parent_info}; outer_job={outer_job}"
+    )
     assert child_pid in result.job_process_ids, (
         f"child process {child_pid} is absent from the runner's Job Object snapshot: "
         f"{result.job_process_ids}; outer_job={outer_job}; "
