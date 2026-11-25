@@ -27,7 +27,10 @@ def run_windows(
     arguments: tuple[str, ...],
     cwd: str,
     timeout_seconds: float,
+    max_output_size: int = MAX_OUTPUT_SIZE,
 ) -> ProcessResult:
+    if not isinstance(max_output_size, int) or isinstance(max_output_size, bool) or not 1 <= max_output_size <= MAX_OUTPUT_SIZE:
+        raise ValueError(f"max_output_size must be between 1 and {MAX_OUTPUT_SIZE}")
     if os.name != "nt":
         raise WindowsRunnerError("The Git runner is supported on Windows only")
 
@@ -142,7 +145,7 @@ def run_windows(
                     raise WindowsRunnerError(f"ReadFile({name}) failed: {ctypes.WinError(code)}")
                 if count.value == 0:
                     return
-                remaining = MAX_OUTPUT_SIZE - len(buffers[name])
+                remaining = max_output_size - len(buffers[name])
                 if remaining > 0:
                     buffers[name].extend(chunk.raw[:min(remaining, count.value)])
                 if count.value > max(remaining, 0):
