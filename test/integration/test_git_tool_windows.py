@@ -9,7 +9,6 @@ import pytest
 
 from local_agent.execution.tools._windows_runner import run_windows
 
-
 pytestmark = pytest.mark.skipif(os.name != "nt", reason="Windows Job Object integration test")
 
 
