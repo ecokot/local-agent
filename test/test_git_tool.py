@@ -87,7 +87,7 @@ def test_rejects_invalid_log_limit_before_running(tool):
 def test_nonzero_exit_is_an_error(tmp_path, monkeypatch):
     monkeypatch.setattr("local_agent.execution.tools.git.shutil.which", lambda _: "git")
 
-    def runner(executable, arguments, cwd, timeout):
+    def runner(executable, arguments, cwd, timeout, max_output_size):
         if arguments[1:] == ("rev-parse", "--show-toplevel"):
             return ProcessResult(str(tmp_path).encode(), b"", 0, False, False, False)
         return ProcessResult(b"", b"bad revision", 128, False, False, False)
