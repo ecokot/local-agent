@@ -19,8 +19,6 @@ class ProcessResult:
     timed_out: bool
     stdout_truncated: bool
     stderr_truncated: bool
-    job_name: str | None = None
-    job_process_ids: tuple[int, ...] = ()
 
 class WindowsRunnerError(RuntimeError):
     """Win32 process execution failed."""
@@ -107,11 +105,6 @@ def run_windows(
     WaitForSingleObject = api("WaitForSingleObject", DWORD, [HANDLE, DWORD])
     GetExitCodeProcess = api("GetExitCodeProcess", BOOL, [HANDLE, ctypes.POINTER(DWORD)])
     TerminateJobObject = api("TerminateJobObject", BOOL, [HANDLE, DWORD])
-    QueryInformationJobObject = api(
-        "QueryInformationJobObject",
-        BOOL,
-        [HANDLE, ctypes.c_int, wintypes.LPVOID, DWORD, ctypes.POINTER(DWORD)],
-    )
     TerminateProcess = api("TerminateProcess", BOOL, [HANDLE, DWORD])
     ReadFile = api("ReadFile", BOOL, [HANDLE, wintypes.LPVOID, DWORD,
                                       ctypes.POINTER(DWORD), wintypes.LPVOID])
@@ -135,8 +128,6 @@ def run_windows(
     write_handles: list[int] = []
     stdin_handle = None
     started = False
-    job_process_ids: tuple[int, ...] = ()
-
     def check(ok, operation):
         if not ok:
             raise WindowsRunnerError(f"{operation} failed: {ctypes.WinError(ctypes.get_last_error())}")
@@ -144,39 +135,6 @@ def run_windows(
     def close(handle):
         if handle:
             CloseHandle(handle)
-
-    def query_job_process_ids() -> tuple[int, ...]:
-        # JOBOBJECT_BASIC_PROCESS_ID_LIST: two DWORDs followed by ULONG_PTR IDs.
-        capacity = 64
-        while capacity <= 65536:
-            buffer = ctypes.create_string_buffer(
-                2 * ctypes.sizeof(DWORD) + capacity * ctypes.sizeof(ctypes.c_size_t)
-            )
-            ctypes.c_uint32.from_buffer(buffer, ctypes.sizeof(DWORD)).value = capacity
-            returned = DWORD()
-            ok = QueryInformationJobObject(
-                job, 3, buffer, ctypes.sizeof(buffer), ctypes.byref(returned)
-            )
-            if not ok:
-                error = ctypes.get_last_error()
-                if error == 234:  # ERROR_MORE_DATA
-                    capacity *= 2
-                    continue
-                raise WindowsRunnerError(
-                    f"QueryInformationJobObject failed: {ctypes.WinError(error)}"
-                )
-            assigned = ctypes.c_uint32.from_buffer(buffer, 0).value
-            count = ctypes.c_uint32.from_buffer(buffer, ctypes.sizeof(DWORD)).value
-            if assigned > count:
-                capacity = max(capacity * 2, assigned)
-                continue
-            ids_offset = 2 * ctypes.sizeof(DWORD)
-            ids = ctypes.cast(
-                ctypes.byref(buffer, ids_offset),
-                ctypes.POINTER(ctypes.c_size_t),
-            )
-            return tuple(int(ids[index]) for index in range(count))
-        raise WindowsRunnerError("Job Object contains too many processes to inspect")
 
     def reader(name, handle):
         chunk = ctypes.create_string_buffer(65536)
@@ -257,7 +215,6 @@ def run_windows(
         wait_ms = max(1, int(timeout_seconds * 1000))
         wait = WaitForSingleObject(process.hProcess, wait_ms)
         timed_out = wait == 0x00000102  # WAIT_TIMEOUT
-        job_process_ids = query_job_process_ids()
         if timed_out:
             check(TerminateJobObject(job, 124), "TerminateJobObject")
             check(WaitForSingleObject(process.hProcess, int(CLEANUP_TIMEOUT * 1000)) == 0,
@@ -286,8 +243,7 @@ def run_windows(
         check(GetExitCodeProcess(process.hProcess, ctypes.byref(exit_code)), "GetExitCodeProcess")
         return ProcessResult(bytes(buffers["stdout"]), bytes(buffers["stderr"]),
                              None if timed_out else exit_code.value, timed_out,
-                             truncated["stdout"], truncated["stderr"], job_name,
-                             job_process_ids)
+                             truncated["stdout"], truncated["stderr"])
     except BaseException:
         if job:
             # Assignment may have failed, leaving the suspended process outside the job.
