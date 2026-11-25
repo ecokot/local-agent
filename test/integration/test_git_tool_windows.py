@@ -3,6 +3,7 @@ from __future__ import annotations
 import ctypes
 import os
 import sys
+import uuid
 
 import pytest
 
@@ -25,32 +26,37 @@ def test_runner_drains_both_streams_and_bounds_saved_output():
 def test_timeout_terminates_process_tree(tmp_path):
     pid_file = tmp_path / "child.pid"
     membership_file = tmp_path / "child-in-job.txt"
+    job_name = "LocalAgent-Test-" + uuid.uuid4().hex
     child_script = (
         "import ctypes,sys,time; "
         "k=ctypes.WinDLL('kernel32',use_last_error=True); "
+        "o=k.OpenJobObjectW; o.restype=ctypes.c_void_p; "
+        "o.argtypes=[ctypes.c_ulong,ctypes.c_int,ctypes.c_wchar_p]; "
+        "j=o(0x0004,False,sys.argv[2]); assert j; "
         "f=k.IsProcessInJob; "
         "f.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.POINTER(ctypes.c_int)]; "
         "f.restype=ctypes.c_int; "
         "v=ctypes.c_int(); "
-        "assert f(ctypes.c_void_p(-1).value,None,ctypes.byref(v)); "
+        "assert f(ctypes.c_void_p(-1).value,j,ctypes.byref(v)); "
         "open(sys.argv[1],'w').write(str(v.value)); time.sleep(60)"
     )
     parent_script = (
         "import subprocess,sys,time,pathlib; "
-        "p=subprocess.Popen([sys.executable,'-c',sys.argv[1],sys.argv[3]], close_fds=False); "
+        "p=subprocess.Popen([sys.executable,'-c',sys.argv[1],sys.argv[3],sys.argv[4]], close_fds=False); "
         "pathlib.Path(sys.argv[2]).write_text(str(p.pid)); "
         "time.sleep(60)"
     )
     result = run_windows(
         sys.executable,
-        ("-c", parent_script, child_script, str(pid_file), str(membership_file)),
+        ("-c", parent_script, child_script, str(pid_file), str(membership_file), job_name),
         str(tmp_path),
         1,
+        job_name=job_name,
     )
     assert result.timed_out
     assert pid_file.exists()
     assert membership_file.exists()
-    assert membership_file.read_text() == "1", "child process did not inherit Job Object membership"
+    assert membership_file.read_text() == "1", "child is not a member of the runner's Job Object"
     child_pid = int(pid_file.read_text())
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     open_process = kernel32.OpenProcess
