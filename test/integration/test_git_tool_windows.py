@@ -3,6 +3,8 @@ from __future__ import annotations
 import ctypes
 import json
 import os
+import shutil
+import subprocess
 import sys
 
 import pytest
@@ -167,3 +169,158 @@ time.sleep(60)
         )
     finally:
         close(handle)
+
+
+def _git(repository, *arguments):
+    executable = shutil.which("git")
+    if executable is None:
+        pytest.skip("Git for Windows is not installed")
+    return subprocess.run(
+        [executable, "-C", str(repository), *arguments],
+        check=True,
+        capture_output=True,
+    )
+
+
+def _init_repository(repository):
+    repository.mkdir(parents=True, exist_ok=True)
+    executable = shutil.which("git")
+    if executable is None:
+        pytest.skip("Git for Windows is not installed")
+    subprocess.run([executable, "init", "-q", "-b", "main", str(repository)], check=True)
+    _git(repository, "config", "user.name", "Local Agent Test")
+    _git(repository, "config", "user.email", "local-agent@example.invalid")
+
+
+def _repository_snapshot(repository):
+    head = _git(repository, "rev-parse", "HEAD").stdout
+    index = _git(repository, "ls-files", "--stage", "-z").stdout
+    tracked_paths = [
+        os.fsdecode(path)
+        for path in _git(repository, "ls-files", "-z").stdout.split(b"\0")
+        if path
+    ]
+    tracked = tuple(
+        (path, (repository / path).read_bytes() if (repository / path).is_file() else None)
+        for path in tracked_paths
+    )
+    untracked_paths = [
+        os.fsdecode(path)
+        for path in _git(repository, "ls-files", "--others", "--exclude-standard", "-z").stdout.split(b"\0")
+        if path
+    ]
+    untracked = tuple(
+        (path, (repository / path).read_bytes())
+        for path in untracked_paths
+    )
+    return head, index, tracked, untracked
+
+
+def test_git_tool_covers_detached_head_all_operations_and_read_only_snapshot(
+    tmp_path, monkeypatch
+):
+    from local_agent.execution.tools.git import GitTool
+    from local_agent.execution.workspace import Workspace
+
+    repository = tmp_path / "repository"
+    _init_repository(repository)
+    initial_files = {
+        "tracked.txt": b"base\n",
+        "literal[ab].txt": b"literal base\n",
+        "literala.txt": b"glob base\n",
+        "rename source.txt": b"rename payload\n",
+        "space name-雪.txt": b"unicode base\n",
+    }
+    for name, content in initial_files.items():
+        (repository / name).write_bytes(content)
+    _git(repository, "add", "--all")
+    _git(repository, "commit", "-qm", "initial")
+    initial_head = _git(repository, "rev-parse", "HEAD").stdout.decode().strip()
+
+    (repository / "tracked.txt").write_bytes(b"staged version\n")
+    _git(repository, "add", "tracked.txt")
+    (repository / "tracked.txt").write_bytes(b"unstaged version\n")
+    (repository / "literal[ab].txt").write_bytes(b"literal changed\n")
+    (repository / "literala.txt").write_bytes(b"glob candidate changed\n")
+    (repository / "rename source.txt").rename(repository / "rename target.txt")
+    (repository / "new file-雪.txt").write_bytes(b"untracked unicode\n")
+    (repository / "tab\tname.txt").write_bytes(b"tab filename\n")
+    (repository / "line\nbreak.txt").write_bytes(b"newline filename\n")
+    _git(repository, "add", "--all")
+    _git(
+        repository,
+        "reset",
+        "-q",
+        "HEAD",
+        "--",
+        "new file-雪.txt",
+        "tab\tname.txt",
+        "line\nbreak.txt",
+    )
+    _git(repository, "checkout", "--detach", "HEAD")
+
+    git_executable = shutil.which("git")
+    assert git_executable is not None
+    monkeypatch.setattr(
+        "local_agent.execution.tools.git.shutil.which",
+        lambda _: git_executable,
+    )
+    tool = GitTool(Workspace(repository))
+    before = _repository_snapshot(repository)
+
+    status = tool.status()
+    assert status.branch is None
+    assert status.head == initial_head
+    assert "# branch.head (detached)" in status.raw
+    assert any(entry.startswith("2 R.") for entry in status.entries)
+    assert all("rename source.txt" not in entry for entry in status.entries)
+
+    assert tool.branch() is None
+    assert tool.head() == initial_head
+    branches = tool.branches()
+    assert any(branch.name == "main" and not branch.current for branch in branches)
+    assert tool.log(5)[0].sha == initial_head
+
+    unstaged_diff = tool.diff()
+    staged_diff = tool.staged_diff()
+    assert "unstaged version" in unstaged_diff
+    assert "staged version" in staged_diff
+    assert "unstaged version" not in staged_diff
+    assert "literal changed" in tool.diff(["literal[ab].txt"])
+    assert "glob candidate changed" not in tool.diff(["literal[ab].txt"])
+
+    changed = tool.changed_files()
+    assert "tracked.txt" in changed
+    assert "rename target.txt" in changed
+    assert "new file-雪.txt" in changed
+    assert "tab\tname.txt" in changed
+    assert "line\nbreak.txt" in changed
+    assert "space name-雪.txt" not in changed
+
+    after = _repository_snapshot(repository)
+    assert after == before
+
+
+def test_git_tool_accepts_linked_worktree(tmp_path, monkeypatch):
+    from local_agent.execution.tools.git import GitTool
+    from local_agent.execution.workspace import Workspace
+
+    repository = tmp_path / "main-repository"
+    linked = tmp_path / "linked-worktree"
+    _init_repository(repository)
+    (repository / "base.txt").write_text("base\n", encoding="utf-8")
+    _git(repository, "add", "base.txt")
+    _git(repository, "commit", "-qm", "initial")
+    _git(repository, "worktree", "add", "-q", "-b", "linked", str(linked), "HEAD")
+    assert (linked / ".git").is_file()
+
+    git_executable = shutil.which("git")
+    assert git_executable is not None
+    monkeypatch.setattr(
+        "local_agent.execution.tools.git.shutil.which",
+        lambda _: git_executable,
+    )
+    tool = GitTool(Workspace(linked))
+    assert tool.branch() == "linked"
+    assert tool.head() == _git(repository, "rev-parse", "HEAD").stdout.decode().strip()
+    assert tool.status().branch == "linked"
