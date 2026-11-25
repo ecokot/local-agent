@@ -289,8 +289,9 @@ def test_git_tool_covers_detached_head_all_operations_and_read_only_snapshot(
     assert "unstaged version" in unstaged_diff
     assert "staged version" in staged_diff
     assert "unstaged version" not in staged_diff
-    assert "literal changed" in tool.diff(["literal[ab].txt"])
-    assert "glob candidate changed" not in tool.diff(["literal[ab].txt"])
+    literal_diff = tool.staged_diff(["literal[ab].txt"])
+    assert "literal changed" in literal_diff
+    assert "glob candidate changed" not in literal_diff
 
     changed = tool.changed_files()
     assert "tracked.txt" in changed
