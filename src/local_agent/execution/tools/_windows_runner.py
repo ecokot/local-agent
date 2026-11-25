@@ -4,7 +4,6 @@ from __future__ import annotations
 import ctypes
 import os
 import threading
-import time
 from dataclasses import dataclass
 from ctypes import wintypes
 
@@ -104,6 +103,8 @@ def run_windows(
                                       ctypes.POINTER(DWORD), wintypes.LPVOID])
     CloseHandle = api("CloseHandle", BOOL, [HANDLE])
     CancelSynchronousIo = api("CancelSynchronousIo", BOOL, [HANDLE])
+    CreateFileW = api("CreateFileW", HANDLE, [wintypes.LPCWSTR, DWORD, DWORD,
+        wintypes.LPVOID, DWORD, DWORD, HANDLE])
     OpenThread = api("OpenThread", HANDLE, [DWORD, BOOL, DWORD])
 
     handles: list[int] = []
@@ -116,6 +117,7 @@ def run_windows(
     read_handles: list[int] = []
     write_handles: list[int] = []
     thread_handles: list[int] = []
+    stdin_handle = None
     started = False
 
     def check(ok, operation):
@@ -169,7 +171,10 @@ def run_windows(
         startup = STARTUPINFOW()
         startup.cb = ctypes.sizeof(startup)
         startup.dwFlags = 0x00000100  # STARTF_USESTDHANDLES
-        startup.hStdInput = None
+        stdin_handle = CreateFileW("NUL", 0x80000000, 0x00000001 | 0x00000002,
+                                   None, 3, 0x00000080, None)
+        check(stdin_handle not in (None, ctypes.c_void_p(-1).value), "CreateFileW(NUL)")
+        startup.hStdInput = stdin_handle
         startup.hStdOutput = write_handles[0]
         startup.hStdError = write_handles[1]
         command_line = ctypes.create_unicode_buffer(
@@ -241,6 +246,8 @@ def run_windows(
             close(process.hThread)
         if process.hProcess:
             close(process.hProcess)
+        if stdin_handle:
+            close(stdin_handle)
 
 def subprocess_list2cmdline(args: tuple[str, ...]) -> str:
     """Quote argv using the Windows CRT command-line convention."""
