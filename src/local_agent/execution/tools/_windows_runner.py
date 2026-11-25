@@ -236,8 +236,13 @@ def run_windows(
         if job:
             # Assignment may have failed, leaving the suspended process outside the job.
             if process.hProcess:
-                TerminateProcess(process.hProcess, 1)
-                WaitForSingleObject(process.hProcess, int(CLEANUP_TIMEOUT * 1000))
+                process_wait = WaitForSingleObject(process.hProcess, 0)
+                if process_wait == 0x00000102:  # WAIT_TIMEOUT
+                    check(TerminateProcess(process.hProcess, 1), "TerminateProcess during cleanup")
+                    check(
+                        WaitForSingleObject(process.hProcess, int(CLEANUP_TIMEOUT * 1000)) == 0,
+                        "WaitForSingleObject during cleanup",
+                    )
             TerminateJobObject(job, 1)
             close(job)
             job = None
