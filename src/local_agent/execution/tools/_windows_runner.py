@@ -200,7 +200,7 @@ def run_windows(
                 )
             else:
                 closed_handles.add(handle)
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001
             cleanup_errors.append(f"CloseHandle({label}) raised: {error!r}")
 
     def terminate_job():
@@ -213,7 +213,7 @@ def run_windows(
                     cleanup_errors.append(
                         f"TerminateJobObject during cleanup failed: {ctypes.WinError(code)}"
                     )
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001
                 cleanup_errors.append(f"TerminateJobObject during cleanup raised: {error!r}")
 
     def wait_for_process(timeout_ms, label):
@@ -229,7 +229,7 @@ def run_windows(
                     cleanup_errors.append(
                         f"{label} failed: {ctypes.WinError(code)}"
                     )
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001
             cleanup_errors.append(f"{label} raised: {error!r}")
 
     def reader(name, handle):
@@ -252,7 +252,7 @@ def run_windows(
                     buffers[name].extend(chunk.raw[: min(remaining, count.value)])
                 if count.value > max(remaining, 0):
                     truncated[name] = True
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001
             reader_errors.append(error)
             reader_failed.set()
 
@@ -260,7 +260,7 @@ def run_windows(
         for thread in readers:
             try:
                 thread.join(CLEANUP_TIMEOUT)
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001
                 cleanup_errors.append(f"Reader join raised: {error!r}")
         for thread in readers:
             if not thread.is_alive():
@@ -282,13 +282,13 @@ def run_windows(
                     cleanup_errors.append(
                         f"OpenThread for reader cancellation failed: {ctypes.WinError(code)}"
                     )
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001
                 cleanup_errors.append(f"Reader cancellation raised: {error!r}")
             finally:
                 close_owned(native_handle, "reader thread handle")
             try:
                 thread.join(CLEANUP_TIMEOUT)
-            except Exception as error:
+            except Exception as error:  # noqa: BLE001
                 cleanup_errors.append(f"Reader join after cancellation raised: {error!r}")
         if any(thread.is_alive() for thread in readers):
             cleanup_errors.append("Reader thread did not stop within cleanup timeout")
@@ -422,7 +422,7 @@ def run_windows(
             if not assigned_to_job:
                 try:
                     process_state = WaitForSingleObject(process.hProcess, 0)
-                except Exception as cleanup_error:
+                except Exception as cleanup_error:  # noqa: BLE001
                     process_state = WAIT_FAILED
                     cleanup_errors.append(
                         f"WaitForSingleObject before TerminateProcess raised: {cleanup_error!r}"
@@ -444,7 +444,7 @@ def run_windows(
                             cleanup_errors.append(
                                 f"TerminateProcess during cleanup failed: {ctypes.WinError(code)}"
                             )
-                    except Exception as cleanup_error:
+                    except Exception as cleanup_error:  # noqa: BLE001
                         cleanup_errors.append(
                             f"TerminateProcess during cleanup raised: {cleanup_error!r}"
                         )
