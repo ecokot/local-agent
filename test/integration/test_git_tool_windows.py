@@ -246,6 +246,10 @@ def test_git_tool_covers_detached_head_all_operations_and_read_only_snapshot(
     (repository / "new file-雪.txt").write_bytes(b"untracked unicode\n")
     (repository / "tab\tname.txt").write_bytes(b"tab filename\n")
     (repository / "line\nbreak.txt").write_bytes(b"newline filename\n")
+    (repository / "copy target.txt").write_bytes(
+        (repository / "space name-雪.txt").read_bytes()
+    )
+    _git(repository, "config", "status.renames", "copies")
     _git(repository, "add", "--all")
     _git(
         repository,
@@ -273,6 +277,7 @@ def test_git_tool_covers_detached_head_all_operations_and_read_only_snapshot(
     assert status.head == initial_head
     assert "# branch.head (detached)" in status.raw
     assert any(entry.startswith("2 R.") for entry in status.entries)
+    assert any(entry.startswith("2 C.") for entry in status.entries)
     assert all("rename source.txt" not in entry for entry in status.entries)
 
     assert tool.branch() is None
@@ -292,6 +297,7 @@ def test_git_tool_covers_detached_head_all_operations_and_read_only_snapshot(
     changed = tool.changed_files()
     assert "tracked.txt" in changed
     assert "rename target.txt" in changed
+    assert "copy target.txt" in changed
     assert "new file-雪.txt" in changed
     assert "tab\tname.txt" in changed
     assert "line\nbreak.txt" in changed
