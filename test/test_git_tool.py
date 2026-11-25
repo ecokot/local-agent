@@ -32,7 +32,7 @@ class FakeRunner:
         elif arguments[1] == "for-each-ref":
             output = b"main\tabc123\t*\n"
         elif arguments[1] == "log":
-            output = b"abc123\0Author\02026-01-01T00:00:00+00:00\0subject\0"
+            output = b"abc123\x00Author\x002026-01-01T00:00:00+00:00\x00subject\x00"
         elif arguments[1:4] == ("diff", "--name-only", "-z"):
             output = b"tracked file.txt\0"
         elif arguments[1:3] == ("ls-files", "--others"):
@@ -103,8 +103,8 @@ def test_missing_git_is_typed_error(tmp_path, monkeypatch):
         GitTool(Workspace(tmp_path), runner=lambda *args: None)
 
 
-def test_real_repository_operations_do_not_mutate(tmp_path, monkeypatch):
-    git = shutil_which = __import__("shutil").which("git")
+@pytest.mark.skipif(__import__("os").name != "nt", reason="GitTool uses the Windows runner")\ndef test_real_repository_operations_do_not_mutate(tmp_path, monkeypatch):
+    git = __import__("shutil").which("git")
     if git is None:
         pytest.skip("Git is not installed")
     subprocess.run([git, "init", "-q", str(tmp_path)], check=True)
