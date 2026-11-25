@@ -336,33 +336,33 @@ def test_runner_does_not_inherit_unlisted_parent_handle(tmp_path):
     class SECURITY_ATTRIBUTES(ctypes.Structure):
         _fields_ = [
             ("nLength", wintypes.DWORD),
-            ("lpSecurityDescriptor", ctypes.wintypes.LPVOID),
-            ("bInheritHandle", ctypes.wintypes.BOOL),
+            ("lpSecurityDescriptor", wintypes.LPVOID),
+            ("bInheritHandle", wintypes.BOOL),
         ]
 
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     create_file = kernel32.CreateFileW
-    create_file.restype = ctypes.wintypes.HANDLE
+    create_file.restype = wintypes.HANDLE
     create_file.argtypes = [
-        ctypes.wintypes.LPCWSTR,
-        ctypes.wintypes.DWORD,
-        ctypes.wintypes.DWORD,
+        wintypes.LPCWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
         ctypes.POINTER(SECURITY_ATTRIBUTES),
-        ctypes.wintypes.DWORD,
-        ctypes.wintypes.DWORD,
-        ctypes.wintypes.HANDLE,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.HANDLE,
     ]
     get_final_path = kernel32.GetFinalPathNameByHandleW
-    get_final_path.restype = ctypes.wintypes.DWORD
+    get_final_path.restype = wintypes.DWORD
     get_final_path.argtypes = [
-        ctypes.wintypes.HANDLE,
-        ctypes.wintypes.LPWSTR,
-        ctypes.wintypes.DWORD,
-        ctypes.wintypes.DWORD,
+        wintypes.HANDLE,
+        wintypes.LPWSTR,
+        wintypes.DWORD,
+        wintypes.DWORD,
     ]
     close_handle = kernel32.CloseHandle
-    close_handle.restype = ctypes.wintypes.BOOL
-    close_handle.argtypes = [ctypes.wintypes.HANDLE]
+    close_handle.restype = wintypes.BOOL
+    close_handle.argtypes = [wintypes.HANDLE]
 
     parent_only_file = tmp_path / "parent-only-handle.txt"
     parent_only_file.write_text("must not be inherited", encoding="utf-8")
@@ -378,7 +378,7 @@ def test_runner_does_not_inherit_unlisted_parent_handle(tmp_path):
         0x00000080,  # FILE_ATTRIBUTE_NORMAL
         None,
     )
-    assert handle not in (None, ctypes.wintypes.HANDLE(-1).value)
+    assert handle not in (None, wintypes.HANDLE(-1).value)
     try:
         expected_buffer = ctypes.create_unicode_buffer(32768)
         length = get_final_path(handle, expected_buffer, len(expected_buffer), 0)
