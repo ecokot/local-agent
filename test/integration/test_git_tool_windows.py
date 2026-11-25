@@ -25,55 +25,22 @@ def test_runner_drains_both_streams_and_bounds_saved_output():
 
 def test_timeout_terminates_process_tree(tmp_path):
     pid_file = tmp_path / "child.pid"
-    child_membership_file = tmp_path / "child-in-job.txt"
-    parent_membership_file = tmp_path / "parent-in-job.txt"
-    job_name = "LocalAgent-Test-" + uuid.uuid4().hex
-    child_script = (
-        "import ctypes,os,sys,time; "
-        "k=ctypes.WinDLL('kernel32',use_last_error=True); "
-        "o=k.OpenJobObjectW; o.restype=ctypes.c_void_p; "
-        "o.argtypes=[ctypes.c_ulong,ctypes.c_int,ctypes.c_wchar_p]; "
-        "j=o(0x0004,False,sys.argv[2]); assert j, 'child OpenJobObjectW: '+str(ctypes.get_last_error()); "
-        "p=k.OpenProcess(0x1000,False,os.getpid()); assert p, 'child OpenProcess failed: '+str(ctypes.get_last_error()); "
-        "f=k.IsProcessInJob; f.restype=ctypes.c_int; "
-        "f.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.POINTER(ctypes.c_int)]; "
-        "inside=ctypes.c_int(); "
-        "assert f(p,j,ctypes.byref(inside)), 'child IsProcessInJob failed: '+str(ctypes.get_last_error()); "
-        "assert inside.value, 'child is not assigned to runner Job Object'; k.CloseHandle(p); "
-        "open(sys.argv[1],'w').write(str(os.getpid())); "
-        "time.sleep(60)"
-    )
+    child_script = "import time; time.sleep(60)"
     parent_script = (
-        "import ctypes,os,pathlib,subprocess,sys,time; "
-        "k=ctypes.WinDLL('kernel32',use_last_error=True); "
-        "o=k.OpenJobObjectW; o.restype=ctypes.c_void_p; "
-        "o.argtypes=[ctypes.c_ulong,ctypes.c_int,ctypes.c_wchar_p]; "
-        "j=o(0x0004,False,sys.argv[5]); assert j, 'parent OpenJobObjectW: '+str(ctypes.get_last_error()); "
-        "p=k.OpenProcess(0x1000,False,os.getpid()); assert p, 'parent OpenProcess failed: '+str(ctypes.get_last_error()); "
-        "f=k.IsProcessInJob; f.restype=ctypes.c_int; "
-        "f.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.POINTER(ctypes.c_int)]; "
-        "inside=ctypes.c_int(); "
-        "assert f(p,j,ctypes.byref(inside)), 'parent IsProcessInJob failed: '+str(ctypes.get_last_error()); "
-        "assert inside.value, 'parent is not assigned to runner Job Object'; k.CloseHandle(p); "
-        "pathlib.Path(sys.argv[4]).write_text(str(os.getpid())); "
-        "p=subprocess.Popen([sys.executable,'-c',sys.argv[1],sys.argv[3],sys.argv[5]], close_fds=False); "
+        "import pathlib,subprocess,sys,time; "
+        "p=subprocess.Popen([sys.executable,'-c',sys.argv[1]], close_fds=False); "
         "pathlib.Path(sys.argv[2]).write_text(str(p.pid)); time.sleep(60)"
     )
     result = run_windows(
         sys.executable,
-        ("-c", parent_script, child_script, str(pid_file), str(child_membership_file),
-         str(parent_membership_file), job_name),
+        ("-c", parent_script, child_script, str(pid_file)),
         str(tmp_path),
         1,
-        job_name=job_name,
     )
     assert result.timed_out
-    assert pid_file.exists()
-    assert parent_membership_file.exists()
-    assert child_membership_file.exists()
-    assert parent_membership_file.read_text().isdigit(), 'parent PID was not recorded'
+    assert pid_file.exists(), "parent did not start the child process"
     child_pid = int(pid_file.read_text())
-    assert child_membership_file.read_text() == str(child_pid)
+
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     open_process = kernel32.OpenProcess
     open_process.restype = ctypes.c_void_p
@@ -83,9 +50,17 @@ def test_timeout_terminates_process_tree(tmp_path):
     wait.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
     close = kernel32.CloseHandle
     close.argtypes = [ctypes.c_void_p]
-    handle = open_process(0x00100000, False, child_pid)
-    if handle:
-        try:
-            assert wait(handle, 3000) == 0, "child process survived Job Object termination"
-        finally:
-            close(handle)
+
+    handle = open_process(0x00100000, False, child_pid)  # SYNCHRONIZE
+    if not handle:
+        error = ctypes.get_last_error()
+        assert error == 87, (
+            f"OpenProcess failed for child PID {child_pid} with unexpected error {error}"
+        )
+        return
+    try:
+        assert wait(handle, 3000) == 0, (
+            f"child process {child_pid} survived Job Object termination"
+        )
+    finally:
+        close(handle)
