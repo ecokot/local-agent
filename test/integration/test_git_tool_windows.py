@@ -24,7 +24,7 @@ def test_runner_drains_both_streams_and_bounds_saved_output():
 
 def test_timeout_terminates_process_tree(tmp_path):
     pid_file = tmp_path / "child.pid"
-    child_script = "import time; time.sleep(60)"
+    child_script = "import ctypes,os,time; value=ctypes.c_int(); ctypes.WinDLL(\\"kernel32\\").IsProcessInJob(os.getpid(), None, ctypes.byref(value)); time.sleep(60)"
     parent_script = (
         "import subprocess,sys,time,pathlib; "
         "p=subprocess.Popen([sys.executable,'-c',sys.argv[1]], close_fds=False); "
