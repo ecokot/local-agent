@@ -240,7 +240,6 @@ def test_git_tool_covers_detached_head_all_operations_and_read_only_snapshot(
 
     (repository / "tracked.txt").write_bytes(b"staged version\n")
     _git(repository, "add", "tracked.txt")
-    (repository / "tracked.txt").write_bytes(b"unstaged version\n")
     (repository / "literal[ab].txt").write_bytes(b"literal changed\n")
     (repository / "literala.txt").write_bytes(b"glob candidate changed\n")
     (repository / "rename source.txt").rename(repository / "rename target.txt")
@@ -257,6 +256,7 @@ def test_git_tool_covers_detached_head_all_operations_and_read_only_snapshot(
         "--",
         "new file-雪.txt",
     )
+    (repository / "tracked.txt").write_bytes(b"unstaged version\n")
 
     git_executable = shutil.which("git")
     assert git_executable is not None
