@@ -106,8 +106,13 @@ time.sleep(60)
 """
     )
 
+    # On Windows, sys.executable inside a venv may be a redirector that
+    # starts the base interpreter as a separate process. Launch the base
+    # interpreter directly so the process under test is the process assigned
+    # to the runner's Job Object.
+    runner_python = getattr(sys, "_base_executable", sys.executable)
     result = run_windows(
-        sys.executable,
+        runner_python,
         (
             "-c", parent_script, child_script,
             str(parent_info_file), str(child_info_file), job_name,
