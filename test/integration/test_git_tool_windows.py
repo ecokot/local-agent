@@ -33,13 +33,13 @@ def test_timeout_terminates_process_tree(tmp_path):
         "k=ctypes.WinDLL('kernel32',use_last_error=True); "
         "o=k.OpenJobObjectW; o.restype=ctypes.c_void_p; "
         "o.argtypes=[ctypes.c_ulong,ctypes.c_int,ctypes.c_wchar_p]; "
-        "j=o(0x0004,False,sys.argv[1]); assert j; "
+        "j=o(0x0004,False,sys.argv[2]); assert j; "
         "f=k.IsProcessInJob; "
         "f.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.POINTER(ctypes.c_int)]; "
         "f.restype=ctypes.c_int; "
         "v=ctypes.c_int(); "
         "assert f(ctypes.c_void_p(-1).value,j,ctypes.byref(v)); "
-        "open(sys.argv[0],'w').write(str(v.value)); time.sleep(60)"
+        "open(sys.argv[1],'w').write(str(v.value)); time.sleep(60)"
     )
     parent_script = (
         "import ctypes,subprocess,sys,time,pathlib; "
