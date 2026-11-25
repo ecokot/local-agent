@@ -110,7 +110,10 @@ def run_windows(
     CreateJobObjectW = api("CreateJobObjectW", HANDLE, [wintypes.LPVOID, wintypes.LPCWSTR])
     OpenJobObjectW = api("OpenJobObjectW", HANDLE, [DWORD, BOOL, wintypes.LPCWSTR])
     GetProcessId = api("GetProcessId", DWORD, [HANDLE])
-    CompareObjectHandles = api("CompareObjectHandles", BOOL, [HANDLE, HANDLE])
+    kernelbase = ctypes.WinDLL("kernelbase", use_last_error=True)
+    CompareObjectHandles = kernelbase.CompareObjectHandles
+    CompareObjectHandles.restype = BOOL
+    CompareObjectHandles.argtypes = [HANDLE, HANDLE]
     QueryInformationJobObject = api(
         "QueryInformationJobObject", BOOL,
         [HANDLE, ctypes.c_int, wintypes.LPVOID, DWORD, ctypes.POINTER(DWORD)],
