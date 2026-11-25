@@ -4,6 +4,7 @@ from __future__ import annotations
 import ctypes
 import os
 import threading
+import uuid
 from dataclasses import dataclass
 from ctypes import wintypes
 
@@ -18,6 +19,7 @@ class ProcessResult:
     timed_out: bool
     stdout_truncated: bool
     stderr_truncated: bool
+    job_name: str | None = None
 
 class WindowsRunnerError(RuntimeError):
     """Win32 process execution failed."""
@@ -28,6 +30,7 @@ def run_windows(
     cwd: str,
     timeout_seconds: float,
     max_output_size: int = MAX_OUTPUT_SIZE,
+    job_name: str | None = None,
 ) -> ProcessResult:
     if not isinstance(max_output_size, int) or isinstance(max_output_size, bool) or not 1 <= max_output_size <= MAX_OUTPUT_SIZE:
         raise ValueError(f"max_output_size must be between 1 and {MAX_OUTPUT_SIZE}")
@@ -111,6 +114,10 @@ def run_windows(
         wintypes.LPVOID, DWORD, DWORD, HANDLE])
     OpenThread = api("OpenThread", HANDLE, [DWORD, BOOL, DWORD])
 
+    if job_name is None:
+        job_name = 'LocalAgent-' + str(os.getpid()) + '-' + uuid.uuid4().hex
+    if not isinstance(job_name, str) or not job_name:
+        raise ValueError('job_name must be a non-empty string')
     job = None
     process = PROCESS_INFORMATION()
     readers: list[threading.Thread] = []
@@ -163,7 +170,7 @@ def run_windows(
             write_handles.append(write_h.value)
             check(SetHandleInformation(read_h, 1, 0), "SetHandleInformation")
 
-        job = CreateJobObjectW(None, None)
+        job = CreateJobObjectW(None, job_name)
         check(bool(job), "CreateJobObjectW")
         limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
         limits.BasicLimitInformation.LimitFlags = 0x00002000  # KILL_ON_JOB_CLOSE
@@ -231,7 +238,7 @@ def run_windows(
         check(GetExitCodeProcess(process.hProcess, ctypes.byref(exit_code)), "GetExitCodeProcess")
         return ProcessResult(bytes(buffers["stdout"]), bytes(buffers["stderr"]),
                              None if timed_out else exit_code.value, timed_out,
-                             truncated["stdout"], truncated["stderr"])
+                             truncated["stdout"], truncated["stderr"], job_name)
     except BaseException:
         if job:
             # Assignment may have failed, leaving the suspended process outside the job.
