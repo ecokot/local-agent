@@ -110,7 +110,7 @@ class FakeKernel32:
             return 800
         if name == "CancelSynchronousIo":
             self.read_release.set()
-            return 1
+            return 0 if self.fail(name) else 1
         if name == "CloseHandle":
             if self.failure == "CloseHandle" and args[0] == 500 and self.close_failures == 0:
                 self.close_failures += 1
@@ -237,3 +237,43 @@ def test_terminate_process_failure_does_not_skip_job_termination(fake_win32):
         "TerminateProcess" in note
         for note in getattr(caught.value, "__notes__", [])
     )
+
+
+
+def test_cleanup_failure_is_attached_without_masking_primary_error(fake_win32):
+    fake_win32.failure = "AssignProcessToJobObject"
+    original = fake_win32.call
+
+    def fail_job_close(name, *args):
+        if name == "CloseHandle" and args[0] == 500 and fake_win32.close_failures == 0:
+            fake_win32.calls.append(name)
+            fake_win32.close_failures += 1
+            return 0
+        return original(name, *args)
+
+    fake_win32.call = fail_job_close
+    with pytest.raises(windows_runner.WindowsRunnerError, match="AssignProcessToJobObject") as caught:
+        execute()
+    notes = getattr(caught.value, "__notes__", [])
+    assert any("CloseHandle" in note for note in notes)
+    assert "TerminateJobObject" in fake_win32.calls
+
+
+def test_reader_cancellation_failure_is_reported(fake_win32):
+    fake_win32.failure = "reader_hang"
+    original = fake_win32.call
+
+    def fail_cancellation(name, *args):
+        if name == "CancelSynchronousIo":
+            fake_win32.calls.append(name)
+            fake_win32.read_release.set()
+            return 0
+        return original(name, *args)
+
+    fake_win32.call = fail_cancellation
+    with pytest.raises(windows_runner.WindowsRunnerError) as caught:
+        execute()
+    assert any(
+        "CancelSynchronousIo" in note
+        for note in getattr(caught.value, "__notes__", [])
+    ) or "CancelSynchronousIo" in str(caught.value)

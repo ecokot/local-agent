@@ -176,8 +176,9 @@ def run_windows(
     def own(handle, label):
         if handle not in (None, 0):
             value = handle if isinstance(handle, int) else handle.value
-            if value not in (None, 0, ctypes.c_void_p(-1).value):
-                owned_handles[value] = label
+            if value in (None, 0, ctypes.c_void_p(-1).value):
+                return None
+            owned_handles[value] = label
             return value
         return None
 
