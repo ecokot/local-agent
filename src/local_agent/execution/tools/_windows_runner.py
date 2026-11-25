@@ -19,8 +19,6 @@ class ProcessResult:
     timed_out: bool
     stdout_truncated: bool
     stderr_truncated: bool
-    # Temporary LA-9B diagnostic data; remove after the Job Object issue is resolved.
-    job_diagnostics: tuple[tuple[str, int | bool], ...]
 
 class WindowsRunnerError(RuntimeError):
     """Win32 process execution failed."""
@@ -73,18 +71,6 @@ def run_windows(
             ("SchedulingClass", DWORD),
         ]
 
-    class JOBOBJECT_BASIC_ACCOUNTING_INFORMATION(ctypes.Structure):
-        _fields_ = [
-            ("TotalUserTime", ctypes.c_longlong),
-            ("TotalKernelTime", ctypes.c_longlong),
-            ("ThisPeriodTotalUserTime", ctypes.c_longlong),
-            ("ThisPeriodTotalKernelTime", ctypes.c_longlong),
-            ("TotalPageFaultCount", DWORD),
-            ("TotalProcesses", DWORD),
-            ("ActiveProcesses", DWORD),
-            ("TotalTerminatedProcesses", DWORD),
-        ]
-
     class IO_COUNTERS(ctypes.Structure):
         _fields_ = [(name, ctypes.c_ulonglong) for name in (
             "ReadOperationCount", "WriteOperationCount", "OtherOperationCount",
@@ -108,16 +94,6 @@ def run_windows(
                                           ctypes.POINTER(SECURITY_ATTRIBUTES), DWORD])
     SetHandleInformation = api("SetHandleInformation", BOOL, [HANDLE, DWORD, DWORD])
     CreateJobObjectW = api("CreateJobObjectW", HANDLE, [wintypes.LPVOID, wintypes.LPCWSTR])
-    OpenJobObjectW = api("OpenJobObjectW", HANDLE, [DWORD, BOOL, wintypes.LPCWSTR])
-    GetProcessId = api("GetProcessId", DWORD, [HANDLE])
-    kernelbase = ctypes.WinDLL("kernelbase", use_last_error=True)
-    CompareObjectHandles = kernelbase.CompareObjectHandles
-    CompareObjectHandles.restype = BOOL
-    CompareObjectHandles.argtypes = [HANDLE, HANDLE]
-    QueryInformationJobObject = api(
-        "QueryInformationJobObject", BOOL,
-        [HANDLE, ctypes.c_int, wintypes.LPVOID, DWORD, ctypes.POINTER(DWORD)],
-    )
     SetInformationJobObject = api("SetInformationJobObject", BOOL, [HANDLE, ctypes.c_int,
                                       wintypes.LPVOID, DWORD])
     CreateProcessW = api("CreateProcessW", BOOL, [wintypes.LPCWSTR, wintypes.LPWSTR,
@@ -152,7 +128,6 @@ def run_windows(
     write_handles: list[int] = []
     stdin_handle = None
     started = False
-    job_diagnostics: tuple[tuple[str, int | bool], ...] = ()
     def check(ok, operation):
         if not ok:
             raise WindowsRunnerError(f"{operation} failed: {ctypes.WinError(ctypes.get_last_error())}")
@@ -194,14 +169,8 @@ def run_windows(
             write_handles.append(write_h.value)
             check(SetHandleInformation(read_h, 1, 0), "SetHandleInformation")
 
-        ctypes.set_last_error(0)
         job = CreateJobObjectW(None, job_name)
-        create_job_error = ctypes.get_last_error()
         check(bool(job), "CreateJobObjectW")
-        if create_job_error == 183:  # ERROR_ALREADY_EXISTS
-            raise WindowsRunnerError(
-                f"CreateJobObjectW opened an existing named Job Object: {job_name!r}"
-            )
         limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION()
         limits.BasicLimitInformation.LimitFlags = 0x00002000  # KILL_ON_JOB_CLOSE
         check(SetInformationJobObject(job, 9, ctypes.byref(limits), ctypes.sizeof(limits)),
@@ -226,51 +195,12 @@ def run_windows(
         started = True
         check(AssignProcessToJobObject(job, process.hProcess), "AssignProcessToJobObject")
 
-        # Diagnose the discrepancy between the runner's process handle and a
-        # separately opened process handle used by the integration test.
-        assigned_pid = GetProcessId(process.hProcess)
-        if not assigned_pid:
-            check(False, "GetProcessId")
-        if assigned_pid != process.dwProcessId:
+        in_job = BOOL()
+        check(IsProcessInJob(process.hProcess, job, ctypes.byref(in_job)), "IsProcessInJob")
+        if not in_job.value:
             raise WindowsRunnerError(
-                f"PROCESS_INFORMATION PID mismatch: dwProcessId={process.dwProcessId}, "
-                f"GetProcessId(hProcess)={assigned_pid}"
+                f"Process {process.dwProcessId} is not in Job Object after successful assignment"
             )
-        reopened_job = OpenJobObjectW(0x0004, False, job_name)  # JOB_OBJECT_QUERY
-        check(bool(reopened_job), "OpenJobObjectW(diagnostic)")
-        try:
-            same_job = bool(CompareObjectHandles(job, reopened_job))
-            original_membership = BOOL()
-            reopened_membership = BOOL()
-            check(IsProcessInJob(process.hProcess, job, ctypes.byref(original_membership)),
-                  "IsProcessInJob(original job handle)")
-            check(IsProcessInJob(process.hProcess, reopened_job, ctypes.byref(reopened_membership)),
-                  "IsProcessInJob(reopened job handle)")
-            accounting = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION()
-            check(QueryInformationJobObject(
-                job, 1, ctypes.byref(accounting), ctypes.sizeof(accounting), None
-            ), "QueryInformationJobObject(original job handle)")
-            reopened_accounting = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION()
-            check(QueryInformationJobObject(
-                reopened_job, 1, ctypes.byref(reopened_accounting),
-                ctypes.sizeof(reopened_accounting), None
-            ), "QueryInformationJobObject(reopened job handle)")
-            job_diagnostics = (
-                ("process_information_pid", int(process.dwProcessId)),
-                ("process_handle_pid", int(assigned_pid)),
-                ("same_named_job_object", same_job),
-                ("membership_original_handle", bool(original_membership.value)),
-                ("membership_reopened_handle", bool(reopened_membership.value)),
-                ("active_processes_original", int(accounting.ActiveProcesses)),
-                ("active_processes_reopened", int(reopened_accounting.ActiveProcesses)),
-            )
-            if not original_membership.value:
-                raise WindowsRunnerError(
-                    f"Process {assigned_pid} is not in Job Object after successful assignment; "
-                    f"diagnostics={job_diagnostics}"
-                )
-        finally:
-            close(reopened_job)
         if ResumeThread(process.hThread) == 0xFFFFFFFF:
             check(False, "ResumeThread")
 
@@ -314,7 +244,7 @@ def run_windows(
         check(GetExitCodeProcess(process.hProcess, ctypes.byref(exit_code)), "GetExitCodeProcess")
         return ProcessResult(bytes(buffers["stdout"]), bytes(buffers["stderr"]),
                              None if timed_out else exit_code.value, timed_out,
-                             truncated["stdout"], truncated["stderr"], job_diagnostics)
+                             truncated["stdout"], truncated["stderr"])
     except BaseException:
         if job:
             # Assignment may have failed, leaving the suspended process outside the job.
