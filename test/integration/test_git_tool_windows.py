@@ -133,7 +133,7 @@ time.sleep(60)
     )
     assert parent_info["membership_query_ok"] and parent_info["is_in_runner_job"], (
         f"parent is not a member of the runner Job Object: "
-        f"parent={parent_info}, runner={diagnostics}"
+        f"parent={parent_info}"
     )
     assert child_info["open_job_ok"] and child_info["open_process_ok"], (
         f"child could not open the runner Job Object/process: {child_info}"
