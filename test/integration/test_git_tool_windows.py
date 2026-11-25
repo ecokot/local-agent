@@ -118,6 +118,13 @@ time.sleep(60)
     )
 
     assert result.timed_out, result.stderr.decode(errors="replace")
+    diagnostics = dict(result.job_diagnostics)
+    assert diagnostics["process_information_pid"] == diagnostics["process_handle_pid"]
+    assert diagnostics["same_named_job_object"], diagnostics
+    assert diagnostics["membership_original_handle"], diagnostics
+    assert diagnostics["membership_reopened_handle"], diagnostics
+    assert diagnostics["active_processes_original"] >= 1, diagnostics
+    assert diagnostics["active_processes_reopened"] >= 1, diagnostics
     assert parent_info_file.exists(), "parent process did not write its Job Object diagnostics"
     assert child_info_file.exists(), "child process did not write its Job Object diagnostics"
     parent_info = json.loads(parent_info_file.read_text())
@@ -126,8 +133,13 @@ time.sleep(60)
     assert parent_info["open_job_ok"] and parent_info["open_process_ok"], (
         f"parent could not open the runner Job Object/process: {parent_info}"
     )
+    assert parent_info["pid"] == diagnostics["process_handle_pid"], (
+        f"test inspected a different process than the runner created: "
+        f"parent={parent_info}, runner={diagnostics}"
+    )
     assert parent_info["membership_query_ok"] and parent_info["is_in_runner_job"], (
-        f"parent is not a member of the runner Job Object: {parent_info}"
+        f"parent is not a member of the runner Job Object: "
+        f"parent={parent_info}, runner={diagnostics}"
     )
     assert child_info["open_job_ok"] and child_info["open_process_ok"], (
         f"child could not open the runner Job Object/process: {child_info}"
