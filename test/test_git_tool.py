@@ -103,7 +103,8 @@ def test_missing_git_is_typed_error(tmp_path, monkeypatch):
         GitTool(Workspace(tmp_path), runner=lambda *args: None)
 
 
-@pytest.mark.skipif(__import__("os").name != "nt", reason="GitTool uses the Windows runner")\ndef test_real_repository_operations_do_not_mutate(tmp_path, monkeypatch):
+@pytest.mark.skipif(__import__("os").name != "nt", reason="GitTool uses the Windows runner")
+def test_real_repository_operations_do_not_mutate(tmp_path, monkeypatch):
     git = __import__("shutil").which("git")
     if git is None:
         pytest.skip("Git is not installed")
