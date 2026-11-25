@@ -106,11 +106,11 @@ import subprocess
 import sys
 import time
 
-subprocess.Popen([sys.executable, "-c", sys.argv[1], sys.argv[4]])
+subprocess.Popen([sys.executable, "-c", sys.argv[1], sys.argv[3]])
 """
         + job_info_code
         + """
-pathlib.Path(sys.argv[3]).write_text(json.dumps(job_info))
+pathlib.Path(sys.argv[2]).write_text(json.dumps(job_info))
 time.sleep(60)
 """
     )
