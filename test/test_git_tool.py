@@ -50,7 +50,7 @@ def tool(tmp_path, monkeypatch):
 
 
 def test_checks_workspace_root_and_runs_git_from_workspace(tool, tmp_path):
-    instance, runner = tool
+    _, runner = tool
     assert runner.calls[0][2] == str(tmp_path.resolve())
     assert runner.calls[0][1] == ("--literal-pathspecs", "rev-parse", "--show-toplevel")
 
