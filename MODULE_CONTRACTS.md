@@ -5,8 +5,8 @@
 > **Проект:** `local-agent`
 > **Репозиторий:** https://github.com/ecokot/local-agent
 > **Основная ветка:** `main`
-> **Коммит проверенной версии кода:** `c18391a`
-> **Актуальность:** 2026-11-24
+> **Коммит проверенной версии кода:** `efb45cd`
+> **Актуальность:** 2026-11-25
 > **Среда:** Windows 11, Python 3.12+, `uv`, PowerShell, PyCharm
 >
 > Публичные контракты и связи модулей сверены с исходниками указанного коммита. Карта тестов описывает покрытие, присутствующее в этом коммите.
@@ -86,6 +86,8 @@
 | src/local_agent/__init__.py | Маркер пакета. Самостоятельного прикладного API не добавляет. |
 | src/local_agent/models/__init__.py | Пакет моделей. Сами контракты определены в отдельных файлах models/*.py. |
 | src/local_agent/execution/__init__.py | Публичный API подсистемы выполнения: ExecutionBackend, ExecutionResult, ExecutionBackendError, ExecutionRecorder и модели событий/результатов ToolExecutor. |
+| src/local_agent/execution/tools/git.py | Самостоятельный read-only GitTool для чтения состояния локального репозитория в пределах Workspace. На этапе 9.Б ещё не зарегистрирован в ToolExecutor. |
+| src/local_agent/execution/tools/_windows_runner.py | Внутренний Windows runner на Win32 API: запуск процесса в Job Object, ограниченный сбор stdout/stderr, timeout, cleanup и whitelist наследуемых handles. |
 
 ### 3.2 StateManager — состояние задач
 
@@ -321,7 +323,7 @@
 
 Ошибки: ошибки SQLite, файловой системы и сериализации; ошибки неизвестного execution_id и недопустимых операций над завершённым выполнением. Специальная прикладная ошибка восстановления истории определена в RecoveryManager как RecoveryError.
 
-### 3.6.1 ToolExecutor и инструменты
+### 3.6.1 ToolExecutor и зарегистрированные инструменты
 
 **Файлы:**
 - src/local_agent/execution/tool_executor.py
@@ -383,6 +385,52 @@
 - ToolExecutor отвечает за диспетчеризацию, подтверждения и запись выполнения; ExecutionBackend отвечает за запуск команды в Docker и очистку контейнера.
 - Docker-изоляция снижает доступ контейнера к хосту, но не является доказательством абсолютной защиты от всех способов выхода из контейнера.
 - Список перехватываемых исключений ограничен конкретными типами; обработка неожиданных исключений отмечена как технический долг.
+
+### 3.6.2 GitTool — самостоятельный read-only инструмент (подэтап 9.Б)
+
+**Файл:** `src/local_agent/execution/tools/git.py`  
+**Внутренний runner:** `src/local_agent/execution/tools/_windows_runner.py`  
+**Тесты:** `test/test_git_tool.py`, `test/test_windows_runner.py`, `test/integration/test_git_tool_windows.py`.
+
+Назначение: читать состояние локального Git-репозитория, корень которого совпадает с `Workspace.root`. GitTool запускает установленный `git.exe` непосредственно на Windows-хосте; Docker ExecutionBackend для этих операций не используется.
+
+Основной контракт:
+
+- `GitTool(workspace: Workspace, *, timeout_seconds: float = 15.0, max_output_size: int = MAX_OUTPUT_SIZE, runner: Runner | None = None)`.
+- При создании проверяет тип Workspace, допустимость timeout/лимита вывода, наличие Git через `shutil.which("git")` и совпадение корня репозитория с `Workspace.root`.
+- Публичные операции только читают репозиторий:
+  - `status() -> GitStatus`;
+  - `branch() -> str | None`;
+  - `head() -> str`;
+  - `branches() -> tuple[GitBranch, ...]`;
+  - `log(limit: int = 20) -> tuple[GitCommit, ...]`;
+  - `diff(paths: tuple[str, ...] | list[str] = ()) -> str`;
+  - `staged_diff(paths: tuple[str, ...] | list[str] = ()) -> str`;
+  - `changed_files() -> tuple[str, ...]`.
+- `GitStatus` содержит raw porcelain v2, текущую ветку (или None для detached HEAD), HEAD и записи статуса.
+- `GitBranch` содержит имя, commit SHA и признак текущей ветки.
+- `GitCommit` содержит SHA, автора, дату и subject.
+- `GitCommandResult` содержит operation, exit code, текстовые и байтовые stdout/stderr и признаки усечения. Это внутренняя модель результата вызова Git.
+- Ошибки: `GitToolError` — базовая; `GitNotFoundError` — Git отсутствует; `GitRepositoryError` — Workspace не является корнем репозитория; `GitCommandError` — ошибка фиксированной Git-операции, содержит operation, exit_code и stderr.
+
+Безопасность аргументов и вывода:
+
+- Git запускается без shell; executable определяется через `shutil.which`.
+- Аргументы формируются внутри GitTool; произвольная команда и произвольный shell-вызов не предоставляются.
+- Перед каждой подкомандой передаётся `--literal-pathspecs`; пути отделяются через `--` и проверяются через `Workspace.resolve_path()`.
+- Таймаут по умолчанию — 15 секунд, максимальный — 120 секунд.
+- Максимальный сохраняемый вывод ограничен `MAX_OUTPUT_SIZE` (см. константу runner); stdout и stderr читаются параллельно, остаток вычитывается с отбрасыванием после достижения лимита.
+- Timeout и ошибки запуска/runner преобразуются в типизированные ошибки GitTool.
+
+Windows runner:
+
+- Использует `CreateProcessW` с `CREATE_SUSPENDED`, затем `AssignProcessToJobObject`, и только после успешного назначения — `ResumeThread`.
+- Job Object настроен с `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`; для завершения дерева процессов применяется `TerminateJobObject`.
+- Для наследования handles используется `STARTUPINFOEXW` и `PROC_THREAD_ATTRIBUTE_HANDLE_LIST`; whitelist содержит только stdin, stdout write и stderr write handles.
+- Reader threads обрабатывают stdout/stderr параллельно; timeout, отмена чтения и cleanup handles обрабатываются runner.
+- `ProcessResult` содержит stdout/stderr bytes, exit_code, timed_out и признаки усечения потоков.
+
+**Граница подэтапа 9.Б:** GitTool реализован самостоятельно, но пока не входит в фиксированный набор ToolExecutor и не вызывается через ToolExecutorAdapter/Orchestrator. Регистрация и передача параметров относятся к 9.В. Все изменяющие Git-операции и подтверждения относятся к 9.Г. Нельзя считать read-only интерфейс доказательством наличия write-операций.
 
 #### RunCommandTool — выполнение системных команд
 
@@ -949,12 +997,15 @@ ExecutionRecorder поддерживает несколько Execution для �
 | test/test_recovery_manager.py                          | Проверка истории выполнений и восстановление состояния задач.                                                                    |
 | test/test_state_manager.py                             | Создание задач, чтение и допустимые/недопустимые переходы.                                                                       |
 | test/test_tool_executor.py                             | Проверка диспетчеризации инструментов, валидации параметров, подтверждений и записи результатов выполнения.                      |
+| test/test_git_tool.py | Unit-тесты GitTool: проверка Workspace/repository, восьми read-only операций, параметров, результатов и ошибок. |
+| test/test_windows_runner.py | Unit-тесты Win32 runner: порядок запуска, Job Object, handle whitelist, reader lifecycle, timeout, ошибки API и cleanup. |
+| test/integration/test_git_tool_windows.py | Windows integration tests GitTool: реальные Git-репозитории, linked worktree, read-only snapshot и проверка отсутствия наследования постороннего handle. |
 | test/test_run_command.py                                | Unit-тесты RunCommandTool: передача команды Backend, преобразование результата, ограничение вывода и обработка ошибок Backend.   |
 | test/test_run_tests.py                                   | Unit-тесты RunTestsTool: фиксированная команда pytest, преобразование результата и обработка ошибок RunCommandTool.              |
 | test/test_execution_backend.py                         | Unit-тесты ExecutionBackend: формирование команды Docker, валидация параметров, обработка ошибок, тайм-аут и очистка контейнера. |
 | test/integration/test_execution_backend_integration.py | Docker integration tests: выполнение команд через ExecutionBackend, stdout/stderr, exit code, Workspace, UID/GID, ограничения контейнера, очистка контейнера, а также сквозная проверка RunCommandTool и RunTestsTool через реальный Docker Backend. |
 
-Тесты не заменяют проверку фактической интеграции. ModelClient и ContextManager остаются вне автоматической цепочки Orchestrator. ExecutionRecorder, напротив, вызывается ToolExecutor при каждом фактическом запуске инструмента; это не означает, что Orchestrator управляет журналом напрямую.
+Тесты не заменяют проверку фактической интеграции. GitTool — самостоятельный read-only компонент; его интеграция в ToolExecutor/Adapter ещё не выполнена (подэтап 9.В). ModelClient и ContextManager остаются вне автоматической цепочки Orchestrator. ExecutionRecorder, напротив, вызывается ToolExecutor при каждом фактическом запуске инструмента; это не означает, что Orchestrator управляет журналом напрямую.
 
 ## 8. Что пока не реализовано как единая система
 
