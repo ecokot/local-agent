@@ -29,32 +29,35 @@ def test_timeout_terminates_process_tree(tmp_path):
     parent_membership_file = tmp_path / "parent-in-job.txt"
     job_name = "LocalAgent-Test-" + uuid.uuid4().hex
     child_script = (
-        "import ctypes,sys,time; "
+        "import ctypes,os,sys,time; "
         "k=ctypes.WinDLL('kernel32',use_last_error=True); "
         "o=k.OpenJobObjectW; o.restype=ctypes.c_void_p; "
         "o.argtypes=[ctypes.c_ulong,ctypes.c_int,ctypes.c_wchar_p]; "
-        "j=o(0x0004,False,sys.argv[2]); "
-        "assert j, 'child OpenJobObjectW failed: '+str(ctypes.get_last_error()); "
-        "f=k.IsProcessInJob; "
-        "f.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.POINTER(ctypes.c_int)]; "
-        "f.restype=ctypes.c_int; "
-        "v=ctypes.c_int(); ok=f(ctypes.c_void_p(-1).value,j,ctypes.byref(v)); "
-        "assert ok, 'child IsProcessInJob failed: '+str(ctypes.get_last_error()); "
-        "open(sys.argv[1],'w').write(str(v.value)); time.sleep(60)"
+        "j=o(0x0004,False,sys.argv[2]); assert j, 'child OpenJobObjectW: '+str(ctypes.get_last_error()); "
+        "q=k.QueryInformationJobObject; "
+        "q.argtypes=[ctypes.c_void_p,ctypes.c_int,ctypes.c_void_p,ctypes.c_ulong,ctypes.c_void_p]; "
+        "q.restype=ctypes.c_int; "
+        "b=ctypes.create_string_buffer(8+8*128); "
+        "assert q(j,3,b,len(b),None), 'child QueryInformationJobObject: '+str(ctypes.get_last_error()); "
+        "n=ctypes.c_uint32.from_buffer(b,4).value; "
+        "ids=(ctypes.c_size_t*128).from_buffer(b,8); "
+        "open(sys.argv[1],'w').write(str(os.getpid())+':'+','.join(map(str,ids[:n]))); "
+        "time.sleep(60)"
     )
     parent_script = (
-        "import ctypes,subprocess,sys,time,pathlib; "
+        "import ctypes,os,pathlib,subprocess,sys,time; "
         "k=ctypes.WinDLL('kernel32',use_last_error=True); "
         "o=k.OpenJobObjectW; o.restype=ctypes.c_void_p; "
         "o.argtypes=[ctypes.c_ulong,ctypes.c_int,ctypes.c_wchar_p]; "
-        "j=o(0x0004,False,sys.argv[5]); "
-        "assert j, 'parent OpenJobObjectW failed: '+str(ctypes.get_last_error()); "
-        "f=k.IsProcessInJob; "
-        "f.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.POINTER(ctypes.c_int)]; "
-        "f.restype=ctypes.c_int; "
-        "v=ctypes.c_int(); ok=f(ctypes.c_void_p(-1).value,j,ctypes.byref(v)); "
-        "assert ok, 'parent IsProcessInJob failed: '+str(ctypes.get_last_error()); "
-        "pathlib.Path(sys.argv[4]).write_text(str(v.value)); "
+        "j=o(0x0004,False,sys.argv[5]); assert j, 'parent OpenJobObjectW: '+str(ctypes.get_last_error()); "
+        "q=k.QueryInformationJobObject; "
+        "q.argtypes=[ctypes.c_void_p,ctypes.c_int,ctypes.c_void_p,ctypes.c_ulong,ctypes.c_void_p]; "
+        "q.restype=ctypes.c_int; "
+        "b=ctypes.create_string_buffer(8+8*128); "
+        "assert q(j,3,b,len(b),None), 'parent QueryInformationJobObject: '+str(ctypes.get_last_error()); "
+        "n=ctypes.c_uint32.from_buffer(b,4).value; "
+        "ids=(ctypes.c_size_t*128).from_buffer(b,8); "
+        "pathlib.Path(sys.argv[4]).write_text(str(os.getpid())+':'+','.join(map(str,ids[:n]))); "
         "p=subprocess.Popen([sys.executable,'-c',sys.argv[1],sys.argv[3],sys.argv[5]], close_fds=False); "
         "pathlib.Path(sys.argv[2]).write_text(str(p.pid)); time.sleep(60)"
     )
@@ -70,8 +73,14 @@ def test_timeout_terminates_process_tree(tmp_path):
     assert pid_file.exists()
     assert parent_membership_file.exists()
     assert child_membership_file.exists()
-    assert parent_membership_file.read_text() == "1", "runner's parent process is not in the Job Object"
-    assert child_membership_file.read_text() == "1", "child is not a member of the runner's Job Object"
+    parent_values = parent_membership_file.read_text().split(":")
+    assert int(parent_values[0]) in {int(value) for value in parent_values[1].split(",") if value}, (
+        "parent PID is absent from Job Object process list: " + parent_membership_file.read_text()
+    )
+    child_values = child_membership_file.read_text().split(":")
+    assert int(child_values[0]) in {int(value) for value in child_values[1].split(",") if value}, (
+        "child PID is absent from Job Object process list: " + child_membership_file.read_text()
+    )
     child_pid = int(pid_file.read_text())
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     open_process = kernel32.OpenProcess
