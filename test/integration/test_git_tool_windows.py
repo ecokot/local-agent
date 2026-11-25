@@ -3,7 +3,6 @@ from __future__ import annotations
 import ctypes
 import os
 import sys
-import uuid
 
 import pytest
 
@@ -42,6 +41,10 @@ def test_timeout_terminates_process_tree(tmp_path):
     assert result.timed_out, result.stderr.decode(errors="replace")
     assert pid_file.exists(), "parent did not start the child process"
     child_pid = int(pid_file.read_text())
+    assert child_pid in result.job_process_ids, (
+        f"child process {child_pid} is absent from the runner's Job Object snapshot: "
+        f"{result.job_process_ids}"
+    )
 
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     open_process = kernel32.OpenProcess
