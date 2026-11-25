@@ -77,6 +77,9 @@ class FakeKernel32:
             if self.fail(name) and self.wait_calls == 1:
                 self.last_error = 6
                 return windows_runner.WAIT_FAILED
+            if self.failure == "ReadFile" and self.wait_calls == 1:
+                self.read_release.wait(0.2)
+                return windows_runner.WAIT_TIMEOUT
             if (
                 self.failure == "AssignProcessToJobObject"
                 and self.wait_calls == 1
@@ -99,6 +102,7 @@ class FakeKernel32:
             handle = args[0]
             if self.failure == "ReadFile" and handle == 101:
                 self.last_error = 5
+                self.read_release.set()
                 return 0
             if self.failure == "reader_hang" and handle == 101:
                 self.read_release.wait(1)
@@ -196,10 +200,14 @@ def test_terminate_job_failure_is_reported_and_job_handle_is_still_closed(fake_w
 
 def test_reader_error_is_diagnostic_and_terminates_without_deadlock(fake_win32):
     fake_win32.failure = "ReadFile"
-    with pytest.raises(windows_runner.WindowsRunnerError, match="Reader failed"):
+    with pytest.raises(windows_runner.WindowsRunnerError, match="reader failed") as caught:
         execute()
     assert fake_win32.calls.count("ReadFile") >= 1
     assert "TerminateJobObject" in fake_win32.calls
+    assert any(
+        "ReadFile(stdout)" in note
+        for note in getattr(caught.value, "__notes__", [])
+    )
     assert "CloseHandle" in fake_win32.calls
 
 
