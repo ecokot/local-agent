@@ -1,6 +1,6 @@
 ﻿ЭТАП: Этап 9.Б
-КОММИТ: b0858da
-ДАТА: 2026-11-25 15:40:18
+КОММИТ: 0ee3b12
+ДАТА: 2026-11-25 15:58:08
 
 СТРУКТУРА ПРОЕКТА
 local-agent
@@ -26,6 +26,12 @@ local-agent
 |   +--- EXECUTION_BACKEND.md
 |   +--- EXECUTION_ISOLATION_RESEARCH.md
 |   \--- PROJECT_STRUCTURE_SCRIPT.md
++--- skills
+|   +--- project-developer
+|   |   \--- SKILL.md
+|   +--- project-planner
+|   |   \--- SKILL.md
+|   \--- README.md
 +--- src
 |   +--- local_agent
 |   |   +--- agents
