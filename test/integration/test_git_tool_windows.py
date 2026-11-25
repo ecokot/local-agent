@@ -6,6 +6,7 @@ import os
 import sys
 
 import pytest
+
 from local_agent.execution.tools._windows_runner import run_windows
 
 
