@@ -236,6 +236,7 @@ def test_git_tool_covers_detached_head_all_operations_and_read_only_snapshot(
     _git(repository, "add", "--all")
     _git(repository, "commit", "-qm", "initial")
     initial_head = _git(repository, "rev-parse", "HEAD").stdout.decode().strip()
+    _git(repository, "checkout", "--detach", "HEAD")
 
     (repository / "tracked.txt").write_bytes(b"staged version\n")
     _git(repository, "add", "tracked.txt")
@@ -256,7 +257,6 @@ def test_git_tool_covers_detached_head_all_operations_and_read_only_snapshot(
         "--",
         "new file-雪.txt",
     )
-    _git(repository, "checkout", "--detach", "HEAD")
 
     git_executable = shutil.which("git")
     assert git_executable is not None
