@@ -136,7 +136,10 @@ class GitTool:
         result = self._execute("status", ["status", "--porcelain=v2", "-z", "--branch"])
         branch = head = None
         entries = []
-        for field in result.stdout.split("\x00"):
+        fields = result.stdout.split("\x00")
+        index = 0
+        while index < len(fields):
+            field = fields[index]
             if field.startswith("# branch.head "):
                 value = field.removeprefix("# branch.head ")
                 branch = None if value == "(detached)" else value
@@ -145,6 +148,12 @@ class GitTool:
                 head = None if value == "(initial)" else value
             elif field and not field.startswith("# "):
                 entries.append(field)
+                # Porcelain v2 type-2 rename/copy records put the original path
+                # in the next NUL-delimited field. It is metadata for this entry,
+                # not a second independent status record.
+                if field.startswith("2 "):
+                    index += 1
+            index += 1
         return GitStatus(result.stdout, branch, head, tuple(entries))
 
     def branch(self) -> str | None:
