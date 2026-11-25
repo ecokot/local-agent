@@ -169,6 +169,7 @@ class GitTool:
             raise ValueError(f"limit must be between 1 and {MAX_LOG_LIMIT}")
         fmt = "%H%x00%an%x00%aI%x00%s%x00"
         output = self._execute("log", ["log", f"-n{limit}", f"--format={fmt}"]).stdout
+        output = output.rstrip("\n")
         fields = output.split("\x00")
         if fields and fields[-1] == "":
             fields.pop()
