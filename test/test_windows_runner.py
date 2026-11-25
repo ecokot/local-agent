@@ -61,7 +61,7 @@ class FakeKernel32:
             size_pointer = ctypes.cast(args[3], ctypes.POINTER(ctypes.c_size_t))
             if args[0] is None:
                 size_pointer[0] = 128
-                self.last_error = 122  # ERROR_INSUFFICIENT_BUFFER
+                self.last_error = 5 if self.fail("attribute_size_query") else 122
                 return 0
             if self.fail(name):
                 self.last_error = 5
@@ -80,6 +80,8 @@ class FakeKernel32:
             return 1
         if name == "DeleteProcThreadAttributeList":
             self.attribute_delete_calls += 1
+            if self.fail(name):
+                raise OSError("fake attribute-list cleanup failure")
             return None
         if name == "CreateJobObjectW":
             if self.fail(name):
@@ -212,6 +214,25 @@ def test_attribute_setup_and_process_creation_failures_release_resources(
     else:
         assert fake_win32.attribute_delete_calls == 1
     assert fake_win32.calls.count("CloseHandle") >= 4
+
+
+def test_attribute_size_query_failure_closes_prepared_handles(fake_win32):
+    fake_win32.failure = "attribute_size_query"
+    with pytest.raises(
+        windows_runner.WindowsRunnerError,
+        match="InitializeProcThreadAttributeList size query failed",
+    ):
+        execute()
+    assert fake_win32.attribute_delete_calls == 0
+    assert fake_win32.calls.count("CloseHandle") >= 4
+
+
+def test_attribute_list_cleanup_error_does_not_skip_handle_cleanup(fake_win32):
+    fake_win32.failure = "DeleteProcThreadAttributeList"
+    with pytest.raises(windows_runner.WindowsRunnerError, match="DeleteProcThreadAttributeList"):
+        execute()
+    assert fake_win32.attribute_delete_calls == 1
+    assert fake_win32.calls.count("CloseHandle") >= 6
 
 
 @pytest.mark.parametrize(
