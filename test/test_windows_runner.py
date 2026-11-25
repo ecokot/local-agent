@@ -31,6 +31,12 @@ class FakeKernel32:
         self.wait_calls = 0
         self.terminate_calls = 0
         self.functions = {}
+        self.attribute_handles = None
+        self.attribute_update_size = None
+        self.attribute_delete_calls = 0
+        self.attribute_initialize_calls = 0
+        self.create_process_flags = None
+        self.create_process_inherit = None
 
     def __getattr__(self, name):
         function = self.functions.get(name)
@@ -50,6 +56,31 @@ class FakeKernel32:
             return 1
         if name == "SetHandleInformation":
             return 1
+        if name == "InitializeProcThreadAttributeList":
+            self.attribute_initialize_calls += 1
+            size_pointer = ctypes.cast(args[3], ctypes.POINTER(ctypes.c_size_t))
+            if args[0] is None:
+                size_pointer[0] = 128
+                self.last_error = 122  # ERROR_INSUFFICIENT_BUFFER
+                return 0
+            if self.fail(name):
+                self.last_error = 5
+                return 0
+            return 1
+        if name == "UpdateProcThreadAttribute":
+            if self.fail(name):
+                self.last_error = 5
+                return 0
+            self.attribute_update_size = args[4]
+            handle_count = args[4] // ctypes.sizeof(ctypes.c_void_p)
+            self.attribute_handles = [
+                ctypes.cast(args[3], ctypes.POINTER(ctypes.c_void_p))[i]
+                for i in range(handle_count)
+            ]
+            return 1
+        if name == "DeleteProcThreadAttributeList":
+            self.attribute_delete_calls += 1
+            return None
         if name == "CreateJobObjectW":
             if self.fail(name):
                 return 0
@@ -59,6 +90,8 @@ class FakeKernel32:
         if name == "CreateFileW":
             return 600
         if name == "CreateProcessW":
+            self.create_process_inherit = bool(args[4])
+            self.create_process_flags = args[5]
             if self.fail(name):
                 return 0
             pointer = ctypes.cast(args[-1], ctypes.POINTER(ctypes.c_void_p))
@@ -147,6 +180,38 @@ def test_process_is_assigned_before_resume(fake_win32):
     calls = fake_win32.calls
     assert calls.index("CreateProcessW") < calls.index("AssignProcessToJobObject")
     assert calls.index("AssignProcessToJobObject") < calls.index("ResumeThread")
+
+
+def test_create_process_receives_only_standard_io_handle_whitelist(fake_win32):
+    execute()
+    assert fake_win32.attribute_handles == [600, 102, 104]
+    assert fake_win32.attribute_update_size == 3 * ctypes.sizeof(ctypes.c_void_p)
+    assert fake_win32.create_process_inherit is True
+    assert fake_win32.create_process_flags == 0x00000004 | 0x00080000
+    assert fake_win32.calls.index("InitializeProcThreadAttributeList") < (
+        fake_win32.calls.index("UpdateProcThreadAttribute")
+    )
+    assert fake_win32.calls.index("UpdateProcThreadAttribute") < (
+        fake_win32.calls.index("CreateProcessW")
+    )
+    assert fake_win32.attribute_delete_calls == 1
+
+
+@pytest.mark.parametrize(
+    "api_name",
+    ["InitializeProcThreadAttributeList", "UpdateProcThreadAttribute", "CreateProcessW"],
+)
+def test_attribute_setup_and_process_creation_failures_release_resources(
+    fake_win32, api_name
+):
+    fake_win32.failure = api_name
+    with pytest.raises(windows_runner.WindowsRunnerError, match=api_name):
+        execute()
+    if api_name == "InitializeProcThreadAttributeList":
+        assert fake_win32.attribute_delete_calls == 0
+    else:
+        assert fake_win32.attribute_delete_calls == 1
+    assert fake_win32.calls.count("CloseHandle") >= 4
 
 
 @pytest.mark.parametrize(
