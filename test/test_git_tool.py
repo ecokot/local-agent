@@ -125,3 +125,88 @@ def test_real_repository_operations_do_not_mutate(tmp_path, monkeypatch):
     assert instance.diff()
     after = subprocess.run([git, "-C", str(tmp_path), "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout
     assert before == after
+
+
+
+def test_rejects_non_workspace_before_git_lookup(monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        "local_agent.execution.tools.git.shutil.which",
+        lambda _: calls.append("which"),
+    )
+    with pytest.raises(TypeError, match="Workspace"):
+        GitTool(object())
+    assert calls == []
+
+
+def test_rejects_workspace_without_repository(tmp_path, monkeypatch):
+    from local_agent.execution.tools.git import GitRepositoryError
+
+    monkeypatch.setattr(
+        "local_agent.execution.tools.git.shutil.which",
+        lambda _: "git",
+    )
+
+    def runner(executable, arguments, cwd, timeout, max_output_size):
+        return ProcessResult(
+            b"",
+            b"fatal: not a git repository",
+            128,
+            False,
+            False,
+            False,
+        )
+
+    with pytest.raises(GitRepositoryError, match="not a Git repository"):
+        GitTool(Workspace(tmp_path), runner=runner)
+
+
+def test_rejects_workspace_that_is_not_repository_root(tmp_path, monkeypatch):
+    from local_agent.execution.tools.git import GitRepositoryError
+
+    repository = tmp_path / "repository"
+    nested = repository / "nested"
+    nested.mkdir(parents=True)
+    monkeypatch.setattr(
+        "local_agent.execution.tools.git.shutil.which",
+        lambda _: "git",
+    )
+
+    def runner(executable, arguments, cwd, timeout, max_output_size):
+        return ProcessResult(
+            str(repository).encode(),
+            b"",
+            0,
+            False,
+            False,
+            False,
+        )
+
+    with pytest.raises(GitRepositoryError, match="does not match Workspace.root"):
+        GitTool(Workspace(nested), runner=runner)
+
+
+def test_rejects_repository_root_mismatch_from_git(tmp_path, monkeypatch):
+    from local_agent.execution.tools.git import GitRepositoryError
+
+    actual = tmp_path / "actual"
+    expected = tmp_path / "expected"
+    actual.mkdir()
+    expected.mkdir()
+    monkeypatch.setattr(
+        "local_agent.execution.tools.git.shutil.which",
+        lambda _: "git",
+    )
+
+    def runner(executable, arguments, cwd, timeout, max_output_size):
+        return ProcessResult(
+            str(actual).encode(),
+            b"",
+            0,
+            False,
+            False,
+            False,
+        )
+
+    with pytest.raises(GitRepositoryError, match="does not match Workspace.root"):
+        GitTool(Workspace(expected), runner=runner)
