@@ -26,37 +26,43 @@ def test_runner_drains_both_streams_and_bounds_saved_output():
 def test_timeout_terminates_process_tree(tmp_path):
     pid_file = tmp_path / "child.pid"
     membership_file = tmp_path / "child-job-membership.txt"
+    job_name = "LocalAgent-test-" + uuid.uuid4().hex
     child_script = (
         "import ctypes,os,sys,time; "
         "k=ctypes.WinDLL('kernel32',use_last_error=True); "
         "p=k.OpenProcess(0x1000,False,os.getpid()); "
         "assert p, 'child OpenProcess failed: '+str(ctypes.get_last_error()); "
+        "open_job=k.OpenJobObjectW; open_job.restype=ctypes.c_void_p; "
+        "open_job.argtypes=[ctypes.c_ulong,ctypes.c_int,ctypes.c_wchar_p]; "
+        "j=open_job(0x0004,False,sys.argv[2]); "
+        "assert j, 'OpenJobObjectW failed: '+str(ctypes.get_last_error()); "
         "f=k.IsProcessInJob; f.restype=ctypes.c_int; "
         "f.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.POINTER(ctypes.c_int)]; "
         "inside=ctypes.c_int(); "
-        "ok=f(p,None,ctypes.byref(inside)); "
-        "error=ctypes.get_last_error(); k.CloseHandle(p); "
+        "ok=f(p,j,ctypes.byref(inside)); "
+        "error=ctypes.get_last_error(); k.CloseHandle(j); k.CloseHandle(p); "
         "open(sys.argv[1],'w').write(str((ok,inside.value,error))); "
         "time.sleep(60)"
     )
     parent_script = (
         "import pathlib,subprocess,sys,time; "
-        "p=subprocess.Popen([sys.executable,'-c',sys.argv[1],sys.argv[3]], close_fds=False); "
+        "p=subprocess.Popen([sys.executable,'-c',sys.argv[1],sys.argv[3],sys.argv[4]], close_fds=False); "
         "pathlib.Path(sys.argv[2]).write_text(str(p.pid)); "
         "time.sleep(60)"
     )
     result = run_windows(
         sys.executable,
-        ("-c", parent_script, child_script, str(pid_file), str(membership_file)),
+        ("-c", parent_script, child_script, str(pid_file), str(membership_file), job_name),
         str(tmp_path),
         3,
+        job_name=job_name,
     )
     assert result.timed_out, result.stderr.decode(errors="replace")
     assert pid_file.exists(), "parent did not start the child process"
     assert membership_file.exists(), "child did not report Job Object membership"
     membership = membership_file.read_text()
     assert membership == "(1, 1, 0)", (
-        "child is not in any Job Object (or IsProcessInJob failed): " + membership
+        "child is not in the runner's Job Object (or IsProcessInJob failed): " + membership
     )
     child_pid = int(pid_file.read_text())
 
@@ -79,7 +85,8 @@ def test_timeout_terminates_process_tree(tmp_path):
         return
     try:
         assert wait(handle, 3000) == 0, (
-            f"child process {child_pid} was in a Job Object but survived TerminateJobObject"
+            f"child process {child_pid} was in the runner's Job Object "
+            "but survived TerminateJobObject"
         )
     finally:
         close(handle)
