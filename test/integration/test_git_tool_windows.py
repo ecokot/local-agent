@@ -327,3 +327,86 @@ def test_git_tool_accepts_linked_worktree(tmp_path, monkeypatch):
     assert tool.branch() == "linked"
     assert tool.head() == _git(repository, "rev-parse", "HEAD").stdout.decode().strip()
     assert tool.status().branch == "linked"
+
+
+def test_runner_does_not_inherit_unlisted_parent_handle(tmp_path):
+    from local_agent.execution.tools._windows_runner import run_windows
+
+    class SECURITY_ATTRIBUTES(ctypes.Structure):
+        _fields_ = [
+            ("nLength", ctypes.wintypes.DWORD),
+            ("lpSecurityDescriptor", ctypes.wintypes.LPVOID),
+            ("bInheritHandle", ctypes.wintypes.BOOL),
+        ]
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    create_file = kernel32.CreateFileW
+    create_file.restype = ctypes.wintypes.HANDLE
+    create_file.argtypes = [
+        ctypes.wintypes.LPCWSTR,
+        ctypes.wintypes.DWORD,
+        ctypes.wintypes.DWORD,
+        ctypes.POINTER(SECURITY_ATTRIBUTES),
+        ctypes.wintypes.DWORD,
+        ctypes.wintypes.DWORD,
+        ctypes.wintypes.HANDLE,
+    ]
+    get_final_path = kernel32.GetFinalPathNameByHandleW
+    get_final_path.restype = ctypes.wintypes.DWORD
+    get_final_path.argtypes = [
+        ctypes.wintypes.HANDLE,
+        ctypes.wintypes.LPWSTR,
+        ctypes.wintypes.DWORD,
+        ctypes.wintypes.DWORD,
+    ]
+    close_handle = kernel32.CloseHandle
+    close_handle.restype = ctypes.wintypes.BOOL
+    close_handle.argtypes = [ctypes.wintypes.HANDLE]
+
+    parent_only_file = tmp_path / "parent-only-handle.txt"
+    parent_only_file.write_text("must not be inherited", encoding="utf-8")
+    security = SECURITY_ATTRIBUTES(
+        ctypes.sizeof(SECURITY_ATTRIBUTES), None, True
+    )
+    handle = create_file(
+        str(parent_only_file),
+        0x80000000,  # GENERIC_READ
+        0x00000001 | 0x00000002,  # FILE_SHARE_READ | FILE_SHARE_WRITE
+        ctypes.byref(security),
+        3,  # OPEN_EXISTING
+        0x00000080,  # FILE_ATTRIBUTE_NORMAL
+        None,
+    )
+    assert handle not in (None, ctypes.wintypes.HANDLE(-1).value)
+    try:
+        expected_buffer = ctypes.create_unicode_buffer(32768)
+        length = get_final_path(handle, expected_buffer, len(expected_buffer), 0)
+        assert length > 0
+        expected_path = expected_buffer.value
+        child_script = """
+import ctypes
+import sys
+from ctypes import wintypes
+
+kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+get_final_path = kernel32.GetFinalPathNameByHandleW
+get_final_path.restype = wintypes.DWORD
+get_final_path.argtypes = [
+    wintypes.HANDLE, wintypes.LPWSTR, wintypes.DWORD, wintypes.DWORD
+]
+handle = wintypes.HANDLE(int(sys.argv[1]))
+buffer = ctypes.create_unicode_buffer(32768)
+length = get_final_path(handle, buffer, len(buffer), 0)
+print("inherited" if length and buffer.value == sys.argv[2] else "not-inherited")
+"""
+        runner_python = getattr(sys, "_base_executable", sys.executable)
+        result = run_windows(
+            runner_python,
+            ("-c", child_script, str(handle), expected_path),
+            str(tmp_path),
+            10,
+        )
+        assert result.exit_code == 0, result.stderr.decode(errors="replace")
+        assert result.stdout.decode().strip() == "not-inherited"
+    finally:
+        assert close_handle(handle)
