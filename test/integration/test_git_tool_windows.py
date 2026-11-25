@@ -55,7 +55,6 @@ def test_runner_drains_both_streams_and_bounds_saved_output():
 
 
 def test_timeout_terminates_process_tree(tmp_path):
-    pid_file = tmp_path / "child.pid"
     parent_info_file = tmp_path / "parent-job.json"
     child_info_file = tmp_path / "child-job.json"
 
@@ -107,8 +106,7 @@ import subprocess
 import sys
 import time
 
-p = subprocess.Popen([sys.executable, "-c", sys.argv[1], sys.argv[4]])
-pathlib.Path(sys.argv[2]).write_text(str(p.pid))
+subprocess.Popen([sys.executable, "-c", sys.argv[1], sys.argv[4]])
 """
         + job_info_code
         + """
@@ -121,7 +119,7 @@ time.sleep(60)
     result = run_windows(
         sys.executable,
         (
-            "-c", parent_script, child_script, str(pid_file),
+            "-c", parent_script, child_script,
             str(parent_info_file), str(child_info_file),
         ),
         str(tmp_path),
@@ -129,10 +127,11 @@ time.sleep(60)
     )
 
     assert result.timed_out, result.stderr.decode(errors="replace")
-    assert pid_file.exists(), "parent did not start the child process"
-    child_pid = int(pid_file.read_text())
+    assert parent_info_file.exists(), "parent process did not write its Job Object diagnostics"
+    assert child_info_file.exists(), "child process did not write its Job Object diagnostics"
     parent_info = json.loads(parent_info_file.read_text())
-    child_info = json.loads(child_info_file.read_text()) if child_info_file.exists() else None
+    child_info = json.loads(child_info_file.read_text())
+    child_pid = child_info["pid"]
     assert child_pid in result.job_process_ids, (
         f"child process {child_pid} is absent from the runner's Job Object snapshot: "
         f"{result.job_process_ids}; outer_job={outer_job}; "
