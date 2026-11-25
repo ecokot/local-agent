@@ -5,9 +5,9 @@ import json
 import os
 import sys
 
-import pytest
-
 from local_agent.execution.tools._windows_runner import run_windows
+
+import pytest
 
 
 pytestmark = pytest.mark.skipif(os.name != "nt", reason="Windows Job Object integration test")
