@@ -101,6 +101,7 @@ def run_windows(
         wintypes.LPVOID, wintypes.LPVOID, BOOL, DWORD, wintypes.LPVOID,
         wintypes.LPCWSTR, ctypes.POINTER(STARTUPINFOW), ctypes.POINTER(PROCESS_INFORMATION)])
     AssignProcessToJobObject = api("AssignProcessToJobObject", BOOL, [HANDLE, HANDLE])
+    IsProcessInJob = api("IsProcessInJob", BOOL, [HANDLE, HANDLE, ctypes.POINTER(BOOL)])
     ResumeThread = api("ResumeThread", DWORD, [HANDLE])
     WaitForSingleObject = api("WaitForSingleObject", DWORD, [HANDLE, DWORD])
     GetExitCodeProcess = api("GetExitCodeProcess", BOOL, [HANDLE, ctypes.POINTER(DWORD)])
@@ -195,6 +196,12 @@ def run_windows(
                              ctypes.byref(process)), "CreateProcessW(CREATE_SUSPENDED)")
         started = True
         check(AssignProcessToJobObject(job, process.hProcess), "AssignProcessToJobObject")
+        in_job = BOOL()
+        check(IsProcessInJob(process.hProcess, job, ctypes.byref(in_job)), "IsProcessInJob")
+        if not in_job.value:
+            raise WindowsRunnerError(
+                f"Process {process.dwProcessId} is not in Job Object after successful assignment"
+            )
         if ResumeThread(process.hThread) == 0xFFFFFFFF:
             check(False, "ResumeThread")
 
