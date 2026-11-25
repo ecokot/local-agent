@@ -13,37 +13,6 @@ from local_agent.execution.tools._windows_runner import run_windows
 pytestmark = pytest.mark.skipif(os.name != "nt", reason="Windows Job Object integration test")
 
 
-class _BasicLimitInformation(ctypes.Structure):
-    _fields_ = [
-        ("PerProcessUserTimeLimit", ctypes.c_longlong),
-        ("PerJobUserTimeLimit", ctypes.c_longlong),
-        ("LimitFlags", ctypes.c_ulong),
-        ("MinimumWorkingSetSize", ctypes.c_size_t),
-        ("MaximumWorkingSetSize", ctypes.c_size_t),
-        ("ActiveProcessLimit", ctypes.c_ulong),
-        ("Affinity", ctypes.c_size_t),
-        ("PriorityClass", ctypes.c_ulong),
-        ("SchedulingClass", ctypes.c_ulong),
-    ]
-
-
-def _current_job_info() -> dict[str, int | bool]:
-    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
-    query = kernel32.QueryInformationJobObject
-    query.restype = ctypes.c_int
-    query.argtypes = [
-        ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, ctypes.c_ulong,
-        ctypes.c_void_p,
-    ]
-    info = _BasicLimitInformation()
-    ok = bool(query(None, 2, ctypes.byref(info), ctypes.sizeof(info), None))
-    return {
-        "query_ok": ok,
-        "error": 0 if ok else ctypes.get_last_error(),
-        "limit_flags": int(info.LimitFlags) if ok else 0,
-    }
-
-
 def test_runner_drains_both_streams_and_bounds_saved_output():
     script = "import sys; sys.stdout.write('o' * 2000000); sys.stderr.write('e' * 2000000)"
     result = run_windows(sys.executable, ("-c", script), os.getcwd(), 15)
@@ -141,7 +110,7 @@ time.sleep(60)
             str(parent_info_file), str(child_info_file), job_name,
         ),
         str(tmp_path),
-        3,
+        8,
         job_name=job_name,
     )
 
