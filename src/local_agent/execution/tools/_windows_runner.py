@@ -99,6 +99,7 @@ def run_windows(
     WaitForSingleObject = api("WaitForSingleObject", DWORD, [HANDLE, DWORD])
     GetExitCodeProcess = api("GetExitCodeProcess", BOOL, [HANDLE, ctypes.POINTER(DWORD)])
     TerminateJobObject = api("TerminateJobObject", BOOL, [HANDLE, DWORD])
+    TerminateProcess = api("TerminateProcess", BOOL, [HANDLE, DWORD])
     ReadFile = api("ReadFile", BOOL, [HANDLE, wintypes.LPVOID, DWORD,
                                       ctypes.POINTER(DWORD), wintypes.LPVOID])
     CloseHandle = api("CloseHandle", BOOL, [HANDLE])
@@ -174,6 +175,7 @@ def run_windows(
         stdin_handle = CreateFileW("NUL", 0x80000000, 0x00000001 | 0x00000002,
                                    None, 3, 0x00000080, None)
         check(stdin_handle not in (None, ctypes.c_void_p(-1).value), "CreateFileW(NUL)")
+        check(SetHandleInformation(stdin_handle, 1, 1), "SetHandleInformation(stdin)")
         startup.hStdInput = stdin_handle
         startup.hStdOutput = write_handles[0]
         startup.hStdError = write_handles[1]
@@ -232,6 +234,10 @@ def run_windows(
                              truncated["stdout"], truncated["stderr"])
     except BaseException:
         if job:
+            # Assignment may have failed, leaving the suspended process outside the job.
+            if process.hProcess:
+                TerminateProcess(process.hProcess, 1)
+                WaitForSingleObject(process.hProcess, int(CLEANUP_TIMEOUT * 1000))
             TerminateJobObject(job, 1)
             close(job)
             job = None
