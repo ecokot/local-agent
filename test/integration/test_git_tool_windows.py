@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import ctypes
-from ctypes import wintypes
 import json
 import os
 import shutil
 import subprocess
 import sys
+from ctypes import wintypes
 
 import pytest
 
