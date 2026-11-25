@@ -58,45 +58,65 @@ def test_timeout_terminates_process_tree(tmp_path):
     pid_file = tmp_path / "child.pid"
     parent_info_file = tmp_path / "parent-job.json"
     child_info_file = tmp_path / "child-job.json"
+
+    job_info_code = """
+import ctypes
+import json
+import os
+import pathlib
+import sys
+
+class Basic(ctypes.Structure):
+    _fields_ = [
+        ("a", ctypes.c_longlong), ("b", ctypes.c_longlong),
+        ("flags", ctypes.c_ulong), ("c", ctypes.c_size_t),
+        ("d", ctypes.c_size_t), ("e", ctypes.c_ulong),
+        ("f", ctypes.c_size_t), ("g", ctypes.c_ulong),
+        ("h", ctypes.c_ulong),
+    ]
+
+kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+query = kernel32.QueryInformationJobObject
+query.restype = ctypes.c_int
+query.argtypes = [
+    ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p,
+    ctypes.c_ulong, ctypes.c_void_p,
+]
+info = Basic()
+ok = bool(query(None, 2, ctypes.byref(info), ctypes.sizeof(info), None))
+job_info = {
+    "pid": os.getpid(),
+    "query_ok": ok,
+    "error": 0 if ok else ctypes.get_last_error(),
+    "limit_flags": int(info.flags) if ok else 0,
+}
+"""
+
     child_script = (
-        "import ctypes,json,pathlib,sys; "
-        "class_code=''; "
-        "class Basic(ctypes.Structure): "
-        "_fields_=[('a',ctypes.c_longlong),('b',ctypes.c_longlong),"
-        "('flags',ctypes.c_ulong),('c',ctypes.c_size_t),"
-        "('d',ctypes.c_size_t),('e',ctypes.c_ulong),"
-        "('f',ctypes.c_size_t),('g',ctypes.c_ulong),('h',ctypes.c_ulong)]; "
-        "k=ctypes.WinDLL('kernel32',use_last_error=True); "
-        "q=k.QueryInformationJobObject; q.restype=ctypes.c_int; "
-        "q.argtypes=[ctypes.c_void_p,ctypes.c_int,ctypes.c_void_p,"
-        "ctypes.c_ulong,ctypes.c_void_p]; "
-        "i=Basic(); ok=bool(q(None,2,ctypes.byref(i),ctypes.sizeof(i),None)); "
-        "pathlib.Path(sys.argv[1]).write_text(json.dumps("
-        "{'pid':__import__('os').getpid(),'query_ok':ok,"
-        "'error':0 if ok else ctypes.get_last_error(),"
-        "'limit_flags':int(i.flags) if ok else 0})); "
-        "import time; time.sleep(60)"
+        job_info_code
+        + """
+pathlib.Path(sys.argv[1]).write_text(json.dumps(job_info))
+import time
+time.sleep(60)
+"""
     )
     parent_script = (
-        "import ctypes,json,pathlib,subprocess,sys,time; "
-        "p=subprocess.Popen([sys.executable,'-c',sys.argv[1],sys.argv[4]]); "
-        "pathlib.Path(sys.argv[2]).write_text(str(p.pid)); "
-        "class Basic(ctypes.Structure): "
-        "_fields_=[('a',ctypes.c_longlong),('b',ctypes.c_longlong),"
-        "('flags',ctypes.c_ulong),('c',ctypes.c_size_t),"
-        "('d',ctypes.c_size_t),('e',ctypes.c_ulong),"
-        "('f',ctypes.c_size_t),('g',ctypes.c_ulong),('h',ctypes.c_ulong)]; "
-        "k=ctypes.WinDLL('kernel32',use_last_error=True); "
-        "q=k.QueryInformationJobObject; q.restype=ctypes.c_int; "
-        "q.argtypes=[ctypes.c_void_p,ctypes.c_int,ctypes.c_void_p,"
-        "ctypes.c_ulong,ctypes.c_void_p]; "
-        "i=Basic(); ok=bool(q(None,2,ctypes.byref(i),ctypes.sizeof(i),None)); "
-        "pathlib.Path(sys.argv[3]).write_text(json.dumps("
-        "{'pid':__import__('os').getpid(),'query_ok':ok,"
-        "'error':0 if ok else ctypes.get_last_error(),"
-        "'limit_flags':int(i.flags) if ok else 0})); "
-        "time.sleep(60)"
+        """
+import pathlib
+import subprocess
+import sys
+import time
+
+p = subprocess.Popen([sys.executable, "-c", sys.argv[1], sys.argv[4]])
+pathlib.Path(sys.argv[2]).write_text(str(p.pid))
+"""
+        + job_info_code
+        + """
+pathlib.Path(sys.argv[3]).write_text(json.dumps(job_info))
+time.sleep(60)
+"""
     )
+
     outer_job = _current_job_info()
     result = run_windows(
         sys.executable,
