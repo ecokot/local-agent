@@ -25,13 +25,14 @@ def test_runner_drains_both_streams_and_bounds_saved_output():
 
 def test_timeout_terminates_process_tree(tmp_path):
     pid_file = tmp_path / "child.pid"
-    membership_file = tmp_path / "child-job-membership.txt"
+    parent_membership_file = tmp_path / "parent-job-membership.txt"
+    child_membership_file = tmp_path / "child-job-membership.txt"
     job_name = "LocalAgent-test-" + uuid.uuid4().hex
-    child_script = (
-        "import ctypes,os,sys,time; "
+    membership_script = (
+        "import ctypes,os,sys; "
         "k=ctypes.WinDLL('kernel32',use_last_error=True); "
         "p=k.OpenProcess(0x1000,False,os.getpid()); "
-        "assert p, 'child OpenProcess failed: '+str(ctypes.get_last_error()); "
+        "assert p, 'OpenProcess failed: '+str(ctypes.get_last_error()); "
         "open_job=k.OpenJobObjectW; open_job.restype=ctypes.c_void_p; "
         "open_job.argtypes=[ctypes.c_ulong,ctypes.c_int,ctypes.c_wchar_p]; "
         "j=open_job(0x0004,False,sys.argv[2]); "
@@ -41,28 +42,44 @@ def test_timeout_terminates_process_tree(tmp_path):
         "inside=ctypes.c_int(); "
         "ok=f(p,j,ctypes.byref(inside)); "
         "error=ctypes.get_last_error(); k.CloseHandle(j); k.CloseHandle(p); "
-        "open(sys.argv[1],'w').write(str((ok,inside.value,error))); "
-        "time.sleep(60)"
+        "open(sys.argv[1],'w').write(str((ok,inside.value,error)))"
     )
+    child_script = membership_script + "; import time; time.sleep(60)"
     parent_script = (
         "import pathlib,subprocess,sys,time; "
         "p=subprocess.Popen([sys.executable,'-c',sys.argv[1],sys.argv[3],sys.argv[4]], close_fds=False); "
         "pathlib.Path(sys.argv[2]).write_text(str(p.pid)); "
+        "exec(sys.argv[5]); "
         "time.sleep(60)"
     )
     result = run_windows(
         sys.executable,
-        ("-c", parent_script, child_script, str(pid_file), str(membership_file), job_name),
+        (
+            "-c",
+            parent_script,
+            child_script,
+            str(pid_file),
+            str(child_membership_file),
+            job_name,
+            str(parent_membership_file),
+        ),
         str(tmp_path),
         3,
         job_name=job_name,
     )
     assert result.timed_out, result.stderr.decode(errors="replace")
     assert pid_file.exists(), "parent did not start the child process"
-    assert membership_file.exists(), "child did not report Job Object membership"
-    membership = membership_file.read_text()
-    assert membership == "(1, 1, 0)", (
-        "child is not in the runner's Job Object (or IsProcessInJob failed): " + membership
+    assert parent_membership_file.exists(), "parent did not report Job Object membership"
+    assert child_membership_file.exists(), "child did not report Job Object membership"
+    parent_membership = parent_membership_file.read_text()
+    child_membership = child_membership_file.read_text()
+    assert parent_membership == "(1, 1, 0)", (
+        "parent is not in the runner's Job Object (or IsProcessInJob failed): "
+        + parent_membership
+    )
+    assert child_membership == "(1, 1, 0)", (
+        "child is not in the runner's Job Object (or IsProcessInJob failed): "
+        + child_membership
     )
     child_pid = int(pid_file.read_text())
 
