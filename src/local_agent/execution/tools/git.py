@@ -5,11 +5,14 @@ import math
 import os
 import shutil
 from dataclasses import dataclass
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 from local_agent.execution.tools._windows_runner import (
-    MAX_OUTPUT_SIZE, ProcessResult, WindowsRunnerError, run_windows,
+    MAX_OUTPUT_SIZE,
+    ProcessResult,
+    WindowsRunnerError,
+    run_windows,
 )
 from local_agent.execution.workspace import Workspace, WorkspaceError
 
