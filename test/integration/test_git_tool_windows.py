@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ctypes
+from ctypes import wintypes
 import json
 import os
 import shutil
@@ -334,7 +335,7 @@ def test_runner_does_not_inherit_unlisted_parent_handle(tmp_path):
 
     class SECURITY_ATTRIBUTES(ctypes.Structure):
         _fields_ = [
-            ("nLength", ctypes.wintypes.DWORD),
+            ("nLength", wintypes.DWORD),
             ("lpSecurityDescriptor", ctypes.wintypes.LPVOID),
             ("bInheritHandle", ctypes.wintypes.BOOL),
         ]
