@@ -99,6 +99,9 @@ subprocess.Popen([sys.executable, "-c", sys.argv[1], sys.argv[3], sys.argv[4]])
         + """
 pathlib.Path(sys.argv[2]).write_text(json.dumps(job_info))
 import time
+deadline = time.monotonic() + 5
+while not pathlib.Path(sys.argv[3]).exists() and time.monotonic() < deadline:
+    time.sleep(0.01)
 time.sleep(60)
 """
     )
