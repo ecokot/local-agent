@@ -45,7 +45,8 @@ def test_timeout_terminates_process_tree(tmp_path):
         "pathlib.Path(sys.argv[2]).write_text(str(p.pid)); "
         "deadline=time.monotonic()+5; "
         "membership=pathlib.Path(sys.argv[3]); "
-        "while not membership.exists() and time.monotonic()<deadline: time.sleep(0.01); "
+        "\\nwhile not membership.exists() and time.monotonic()<deadline:\\n"
+        "    time.sleep(0.01)\\n"
         "assert membership.exists(), 'child did not report Job Object membership'; "
         "time.sleep(60)"
     )
