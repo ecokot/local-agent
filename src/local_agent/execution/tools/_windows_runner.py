@@ -273,10 +273,11 @@ def run_windows(
                     native_handle = own(native, "reader thread handle")
                     if not CancelSynchronousIo(native_handle):
                         code = ctypes.get_last_error()
-                        cleanup_errors.append(
-                            f"CancelSynchronousIo failed: {ctypes.WinError(code)}"
-                        )
-                else:
+                        if code != 1168:  # ERROR_NOT_FOUND: no synchronous I/O remains pending
+                            cleanup_errors.append(
+                                f"CancelSynchronousIo failed: {ctypes.WinError(code)}"
+                            )
+                elif thread.is_alive():
                     code = ctypes.get_last_error()
                     cleanup_errors.append(
                         f"OpenThread for reader cancellation failed: {ctypes.WinError(code)}"
@@ -471,6 +472,10 @@ def run_windows(
             close_owned(job, "Job Object")
         for handle, label in tuple(owned_handles.items()):
             close_owned(handle, label)
+        # Retry individual CloseHandle failures once; continue through every resource.
+        for handle, label in tuple(owned_handles.items()):
+            if handle not in closed_handles:
+                close_owned(handle, label)
 
     if primary_error is not None:
         if cleanup_errors:
