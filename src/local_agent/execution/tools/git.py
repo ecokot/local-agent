@@ -76,7 +76,7 @@ class GitStatus:
     entries: tuple[str, ...]
 
 
-Runner = Callable[[str, tuple[str, ...], str, float], ProcessResult]
+Runner = Callable[[str, tuple[str, ...], str, float, int], ProcessResult]
 
 
 class GitTool:
@@ -221,7 +221,7 @@ class GitTool:
         try:
             raw = self._runner(
                 self._executable, ("--literal-pathspecs", *args),
-                str(self._workspace.root), self._timeout_seconds,
+                str(self._workspace.root), self._timeout_seconds, self._max_output_size,
             )
         except (OSError, WindowsRunnerError) as error:
             raise GitToolError(f"Could not run Git operation {operation!r}: {error}") from error
