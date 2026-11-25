@@ -37,6 +37,10 @@ class FakeKernel32:
         self.attribute_initialize_calls = 0
         self.create_process_flags = None
         self.create_process_inherit = None
+        self.startup_info_type = None
+        self.startup_info_cb = None
+        self.startup_attribute_list = None
+        self.standard_handles = None
 
     def __getattr__(self, name):
         function = self.functions.get(name)
@@ -94,6 +98,15 @@ class FakeKernel32:
         if name == "CreateProcessW":
             self.create_process_inherit = bool(args[4])
             self.create_process_flags = args[5]
+            startup = args[8]._obj
+            self.startup_info_type = type(startup).__name__
+            self.startup_info_cb = startup.StartupInfo.cb
+            self.startup_attribute_list = startup.lpAttributeList
+            self.standard_handles = (
+                startup.StartupInfo.hStdInput,
+                startup.StartupInfo.hStdOutput,
+                startup.StartupInfo.hStdError,
+            )
             if self.fail(name):
                 return 0
             pointer = ctypes.cast(args[-1], ctypes.POINTER(ctypes.c_void_p))
@@ -190,6 +203,10 @@ def test_create_process_receives_only_standard_io_handle_whitelist(fake_win32):
     assert fake_win32.attribute_update_size == 3 * ctypes.sizeof(ctypes.c_void_p)
     assert fake_win32.create_process_inherit is True
     assert fake_win32.create_process_flags == 0x00000004 | 0x00080000
+    assert fake_win32.startup_info_type == "STARTUPINFOEXW"
+    assert fake_win32.startup_info_cb > 0
+    assert fake_win32.startup_attribute_list
+    assert list(fake_win32.standard_handles) == fake_win32.attribute_handles
     assert fake_win32.calls.index("InitializeProcThreadAttributeList") < (
         fake_win32.calls.index("UpdateProcThreadAttribute")
     )
