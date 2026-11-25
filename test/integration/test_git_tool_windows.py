@@ -50,7 +50,6 @@ def test_timeout_terminates_process_tree(tmp_path):
         "p=subprocess.Popen([sys.executable,'-c',sys.argv[0],sys.argv[3],sys.argv[4]], close_fds=False); "
         "pathlib.Path(sys.argv[1]).write_text(str(p.pid)); "
         "k=ctypes.WinDLL('kernel32',use_last_error=True); "
-        "h=k.OpenProcess(0x1000,False,os.getpid()) if False else None; "
         "import os; "
         "h=k.OpenProcess(0x1000,False,os.getpid()); "
         "assert h, 'parent OpenProcess failed: '+str(ctypes.get_last_error()); "
