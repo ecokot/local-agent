@@ -277,3 +277,27 @@ def test_reader_cancellation_failure_is_reported(fake_win32):
         "CancelSynchronousIo" in note
         for note in getattr(caught.value, "__notes__", [])
     ) or "CancelSynchronousIo" in str(caught.value)
+
+
+
+def test_unassigned_process_wait_failure_still_attempts_termination(fake_win32):
+    fake_win32.failure = "AssignProcessToJobObject"
+    original = fake_win32.call
+
+    def fail_first_wait(name, *args):
+        if name == "WaitForSingleObject" and fake_win32.wait_calls == 0:
+            fake_win32.calls.append(name)
+            fake_win32.wait_calls += 1
+            fake_win32.last_error = 6
+            return windows_runner.WAIT_FAILED
+        return original(name, *args)
+
+    fake_win32.call = fail_first_wait
+    with pytest.raises(windows_runner.WindowsRunnerError, match="AssignProcessToJobObject") as caught:
+        execute()
+    assert "TerminateProcess" in fake_win32.calls
+    assert "TerminateJobObject" in fake_win32.calls
+    assert any(
+        "WaitForSingleObject" in note
+        for note in getattr(caught.value, "__notes__", [])
+    )

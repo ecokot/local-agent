@@ -420,21 +420,35 @@ def run_windows(
             if not assigned_to_job:
                 try:
                     process_state = WaitForSingleObject(process.hProcess, 0)
-                    if process_state == WAIT_TIMEOUT:
+                except BaseException as cleanup_error:
+                    process_state = WAIT_FAILED
+                    cleanup_errors.append(
+                        f"WaitForSingleObject before TerminateProcess raised: {cleanup_error!r}"
+                    )
+                if process_state != WAIT_OBJECT_0:
+                    if process_state not in (WAIT_TIMEOUT, WAIT_FAILED):
+                        cleanup_errors.append(
+                            f"WaitForSingleObject before TerminateProcess returned "
+                            f"unexpected status 0x{process_state:08X}"
+                        )
+                    elif process_state == WAIT_FAILED:
+                        code = ctypes.get_last_error()
+                        cleanup_errors.append(
+                            f"WaitForSingleObject before TerminateProcess failed: {ctypes.WinError(code)}"
+                        )
+                    try:
                         if not TerminateProcess(process.hProcess, 1):
                             code = ctypes.get_last_error()
                             cleanup_errors.append(
                                 f"TerminateProcess during cleanup failed: {ctypes.WinError(code)}"
                             )
-                        wait_for_process(int(CLEANUP_TIMEOUT * 1000), "WaitForSingleObject after TerminateProcess")
-                    elif process_state not in (WAIT_OBJECT_0, WAIT_TIMEOUT):
-                        code = ctypes.get_last_error()
+                    except BaseException as cleanup_error:
                         cleanup_errors.append(
-                            f"WaitForSingleObject before TerminateProcess failed: {ctypes.WinError(code)}"
+                            f"TerminateProcess during cleanup raised: {cleanup_error!r}"
                         )
-                except BaseException as cleanup_error:
-                    cleanup_errors.append(
-                        f"TerminateProcess/wait cleanup raised: {cleanup_error!r}"
+                    wait_for_process(
+                        int(CLEANUP_TIMEOUT * 1000),
+                        "WaitForSingleObject after TerminateProcess",
                     )
             else:
                 terminate_job()
@@ -448,6 +462,10 @@ def run_windows(
             if job in closed_handles:
                 job = None
         stop_readers()
+        cleanup_errors.extend(
+            f"Reader error during cleanup: {error!r}"
+            for error in reader_errors
+        )
     finally:
         if job:
             close_owned(job, "Job Object")
