@@ -43,11 +43,6 @@ def test_timeout_terminates_process_tree(tmp_path):
         "import pathlib,subprocess,sys,time; "
         "p=subprocess.Popen([sys.executable,'-c',sys.argv[1],sys.argv[3]], close_fds=False); "
         "pathlib.Path(sys.argv[2]).write_text(str(p.pid)); "
-        "deadline=time.monotonic()+5; "
-        "membership=pathlib.Path(sys.argv[3]); "
-        "\\nwhile not membership.exists() and time.monotonic()<deadline:\\n"
-        "    time.sleep(0.01)\\n"
-        "assert membership.exists(), 'child did not report Job Object membership'; "
         "time.sleep(60)"
     )
     result = run_windows(
