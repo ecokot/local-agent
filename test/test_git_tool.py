@@ -19,7 +19,7 @@ class FakeRunner:
         self.root = str(root)
         self.calls = []
 
-    def __call__(self, executable, arguments, cwd, timeout):
+    def __call__(self, executable, arguments, cwd, timeout, max_output_size):
         self.calls.append((executable, arguments, cwd, timeout))
         if arguments[1:] == ("rev-parse", "--show-toplevel"):
             output = self.root.encode()
