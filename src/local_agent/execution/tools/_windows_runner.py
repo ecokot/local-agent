@@ -108,7 +108,6 @@ def run_windows(
         wintypes.LPVOID, DWORD, DWORD, HANDLE])
     OpenThread = api("OpenThread", HANDLE, [DWORD, BOOL, DWORD])
 
-    handles: list[int] = []
     job = None
     process = PROCESS_INFORMATION()
     readers: list[threading.Thread] = []
@@ -117,7 +116,6 @@ def run_windows(
     truncated = {"stdout": False, "stderr": False}
     read_handles: list[int] = []
     write_handles: list[int] = []
-    thread_handles: list[int] = []
     stdin_handle = None
     started = False
 
@@ -218,7 +216,6 @@ def run_windows(
             if thread.is_alive():
                 native = OpenThread(0x0001, False, thread.native_id)  # THREAD_TERMINATE
                 if native:
-                    thread_handles.append(native)
                     CancelSynchronousIo(native)
                     close(native)
                 thread.join(CLEANUP_TIMEOUT)
