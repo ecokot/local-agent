@@ -25,7 +25,8 @@ def test_runner_drains_both_streams_and_bounds_saved_output():
 
 def test_timeout_terminates_process_tree(tmp_path):
     pid_file = tmp_path / "child.pid"
-    membership_file = tmp_path / "child-in-job.txt"
+    child_membership_file = tmp_path / "child-in-job.txt"
+    parent_membership_file = tmp_path / "parent-in-job.txt"
     job_name = "LocalAgent-Test-" + uuid.uuid4().hex
     child_script = (
         "import ctypes,sys,time; "
@@ -41,22 +42,33 @@ def test_timeout_terminates_process_tree(tmp_path):
         "open(sys.argv[1],'w').write(str(v.value)); time.sleep(60)"
     )
     parent_script = (
-        "import subprocess,sys,time,pathlib; "
-        "p=subprocess.Popen([sys.executable,'-c',sys.argv[1],sys.argv[3],sys.argv[4]], close_fds=False); "
-        "pathlib.Path(sys.argv[2]).write_text(str(p.pid)); "
-        "time.sleep(60)"
+        "import ctypes,subprocess,sys,time,pathlib; "
+        "k=ctypes.WinDLL('kernel32',use_last_error=True); "
+        "o=k.OpenJobObjectW; o.restype=ctypes.c_void_p; "
+        "o.argtypes=[ctypes.c_ulong,ctypes.c_int,ctypes.c_wchar_p]; "
+        "j=o(0x0004,False,sys.argv[5]); assert j; "
+        "f=k.IsProcessInJob; "
+        "f.argtypes=[ctypes.c_void_p,ctypes.c_void_p,ctypes.POINTER(ctypes.c_int)]; "
+        "f.restype=ctypes.c_int; "
+        "v=ctypes.c_int(); assert f(ctypes.c_void_p(-1).value,j,ctypes.byref(v)); "
+        "pathlib.Path(sys.argv[4]).write_text(str(v.value)); "
+        "p=subprocess.Popen([sys.executable,'-c',sys.argv[1],sys.argv[3],sys.argv[5]], close_fds=False); "
+        "pathlib.Path(sys.argv[2]).write_text(str(p.pid)); time.sleep(60)"
     )
     result = run_windows(
         sys.executable,
-        ("-c", parent_script, child_script, str(pid_file), str(membership_file), job_name),
+        ("-c", parent_script, child_script, str(pid_file), str(child_membership_file),
+         str(parent_membership_file), job_name),
         str(tmp_path),
         1,
         job_name=job_name,
     )
     assert result.timed_out
     assert pid_file.exists()
-    assert membership_file.exists()
-    assert membership_file.read_text() == "1", "child is not a member of the runner's Job Object"
+    assert parent_membership_file.exists()
+    assert child_membership_file.exists()
+    assert parent_membership_file.read_text() == "1", "runner's parent process is not in the Job Object"
+    assert child_membership_file.read_text() == "1", "child is not a member of the runner's Job Object"
     child_pid = int(pid_file.read_text())
     kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
     open_process = kernel32.OpenProcess
@@ -67,7 +79,7 @@ def test_timeout_terminates_process_tree(tmp_path):
     wait.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
     close = kernel32.CloseHandle
     close.argtypes = [ctypes.c_void_p]
-    handle = open_process(0x00100000, False, child_pid)  # SYNCHRONIZE
+    handle = open_process(0x00100000, False, child_pid)
     if handle:
         try:
             assert wait(handle, 3000) == 0, "child process survived Job Object termination"
