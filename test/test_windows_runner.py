@@ -85,7 +85,7 @@ class FakeKernel32:
                 and self.wait_calls == 1
             ):
                 return windows_runner.WAIT_TIMEOUT
-            if self.failure == "timeout" and self.wait_calls == 1:
+            if self.failure == "timeout":
                 return windows_runner.WAIT_TIMEOUT
             return windows_runner.WAIT_OBJECT_0
         if name == "GetExitCodeProcess":
