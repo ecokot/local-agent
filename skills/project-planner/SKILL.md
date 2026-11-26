@@ -145,15 +145,41 @@ Findings should identify the affected file/behavior, explain the impact, and sta
 
 ### 5. Close the work
 
-After acceptance, follow the project's established release procedure:
-- obtain explicit user authorization before merge or other consequential repository actions unless that authorization has already been granted for the exact action;
-- verify the merged result on the target branch;
-- update the authoritative project status and relevant technical documentation;
-- record the accepted work, evidence, and commit/PR references in the development history;
-- refresh generated structure or inventory snapshots only when the project requires them;
-- verify repository synchronization and clean state when those are part of the workflow.
+Acceptance is not complete until the project's required closeout records are updated. Follow the active project's release procedure and document hierarchy.
 
-Do not mark work complete before the project's acceptance conditions are satisfied. Do not start a dependent task before its predecessor is accepted and closed.
+#### Merge and verify the repository result
+
+1. Obtain the required user decision/authorization before merge or other reserved repository actions. Treat an explicit user acceptance of the reviewed stage/PR as authorization to perform the merge only when the project's established permissions say so.
+2. Merge using the project's established method; do not let the developer merge their own work.
+3. Verify on GitHub that the intended PR is merged into the intended target branch and record the exact merge commit.
+4. Do not infer that the user's local working copy is synchronized merely because GitHub reports a successful merge.
+
+#### Verify the user's local working copy
+
+When the project is developed in a local working copy that the planner cannot inspect directly, local synchronization and status must be verified with the user's help:
+
+1. Provide short, exact, non-destructive PowerShell/Git commands for the next safe check. Start with diagnostics (branch, status, HEAD, and remote state); do not immediately issue `switch`, `pull`, `reset`, `clean`, `restore`, or other state-changing commands.
+2. Ask the user to run the commands in the intended working copy and return the complete output.
+3. Inspect the output before recommending synchronization. If there are uncommitted changes, an unexpected branch, divergence, or another risk, stop and explain the situation. Never overwrite, stash, discard, or move user changes automatically.
+4. When safe, provide the minimal synchronization command, normally a fast-forward-only pull, then request status and HEAD output again.
+5. Claim local synchronization only after the returned evidence shows the local HEAD matches the intended remote target commit. Report working-tree cleanliness separately; synchronization does not imply a clean working tree.
+6. If the user performs checks or synchronization themselves, attribute those actions to the user. Never claim to have run them.
+
+If direct access to the user's local working copy is unavailable, do not pretend otherwise. The user's command output is the evidence for local state.
+
+#### Update the plan and development history
+
+After the stage is accepted, merged, and the required local verification has been completed:
+
+- **The authoritative project plan is mandatory to update.** Record the accepted status, acceptance date, task/stage identifiers, relevant task and report links, PR, branch/commit references, merge commit, and concise outcome in the format already used by the plan. Update dependent-stage status/next step where appropriate. Do not leave an accepted stage marked as pending or next.
+- **The development history is also mandatory to maintain when the project has one.** Add a chronological record of the accepted work, including its purpose, implementation/research outcome, important decisions, scope, limitations or deferred items, test/check results, who ran each check, local verification evidence, PR, source/head commit, and merge commit. Preserve earlier history; append or update the appropriate entry rather than silently deleting prior facts.
+- Keep the plan concise and use the history for fuller detail. The plan remains the source of current status; the history records how the project reached that state.
+- Update other project documents only when required by their contracts or the established closeout process. Refresh generated structure/inventory snapshots only when the project requires them.
+- Review the plan and history diffs against the verified evidence. Do not invent dates, test results, local state, or commit identifiers.
+
+Publish documentation updates through the project's authorized branch/PR workflow. Verify the resulting commits and PR state. If the plan/history update itself requires local validation, use the same user-assisted, non-destructive verification process above.
+
+Do not mark work complete before the project's acceptance conditions and required closeout steps are satisfied. Do not start a dependent task before its predecessor is accepted and closed.
 
 ## User interaction
 
