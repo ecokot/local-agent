@@ -561,6 +561,7 @@ class GitTool:
         expected = {
             "repository_root": snapshot["repository_root"],
             "head": snapshot["head"],
+            "branch": snapshot["branch"],
             "index_fingerprint": snapshot["index_fingerprint"],
             "staged_diff_fingerprint": snapshot["staged_diff_fingerprint"],
             "staged_paths": snapshot["staged_paths"],
@@ -706,6 +707,7 @@ class GitTool:
             receipt = {
                 "repository_root": after["repository_root"],
                 "head": after["head"],
+                "branch": after["branch"],
                 "index_fingerprint": after["index_fingerprint"],
                 "staged_diff_fingerprint": after["staged_diff_fingerprint"],
                 "staged_paths": staged_paths,
