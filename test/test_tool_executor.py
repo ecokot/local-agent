@@ -61,6 +61,7 @@ class FakeGitTool:
             result["_stage_receipt"] = {
                 "repository_root": "fake",
                 "head": "fake-head",
+                "branch": "fake-branch",
                 "index_fingerprint": "fake-index",
                 "staged_diff_fingerprint": "fake-diff",
                 "staged_paths": parameters["paths"],
