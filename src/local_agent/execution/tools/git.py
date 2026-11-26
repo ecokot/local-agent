@@ -878,4 +878,3 @@ class GitTool:
             "configured_path": configured_path,
             "files": files,
         }
-
