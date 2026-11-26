@@ -135,6 +135,7 @@ Keep evidence factual. A report is a handoff, not a declaration that the task is
 - Never discard, overwrite, reset, clean, or silently absorb pre-existing user changes.
 - Do not use broad staging or commit commands when they could include unrelated files; stage the intended paths explicitly.
 - Do not force-push, rewrite shared history, delete branches, merge a PR, or perform destructive Git operations without the required explicit authorization.
+- Do not assume that project-level permission granted to the planner is also delegated to the developer. Create commits, push a branch, or open/update a PR only when the task explicitly assigns that operation to the developer; otherwise prepare the changes and hand them to the planner. Never merge a PR.
 - Do not create a PR before implementation, required checks assigned to the developer, and the complete report are ready.
 - When the project workflow requires a PR, include the task and report in the agreed locations and make the PR identify the exact task version, base commit, and evidence. Do not merge the PR; merge belongs to the planner after independent review and the required user decision.
 - If repository state differs from the agreed baseline, stop and clarify rather than improvising a recovery.
