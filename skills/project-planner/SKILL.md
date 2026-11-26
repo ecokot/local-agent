@@ -69,6 +69,18 @@ Write requirements as observable behavior, not vague aspirations. Acceptance cri
 
 Use the project's task template when one exists. Keep one task focused; split work only when there is a real dependency or independently reviewable boundary. Do not create paperwork that adds no control value.
 
+#### Mandatory task-template compliance
+
+When the active project provides a task template, using it is mandatory, not optional:
+
+1. Locate and read the **complete, current** task template from the exact baseline/repository version on which the task will be based. Do not rely on memory, an older copy, or a task outline used in a previous conversation.
+2. Preserve the template's section headings, numbering, order, required fields, tables, and decision fields. Do not replace the template with a planner-created structure, omit sections, or rename sections for convenience.
+3. Fill every section and field. If an item is genuinely inapplicable, retain it and explicitly write that it is not applicable with a brief reason. Do not leave unexplained placeholders or silently delete template content.
+4. Preserve all template-required identifiers and traceability, including requirement IDs and acceptance-criterion IDs.
+5. Before presenting or handing off the task, compare the completed task against the source template section by section. Confirm that every section and required field is present and populated, and that no template instruction remains unresolved.
+6. If the template is unavailable, incomplete, or conflicts with a governing project decision, do not invent a replacement or claim compliance. Identify the exact issue and resolve it before presenting the task as ready.
+7. State that a task follows the template only after this explicit completeness check. A draft that has not passed the check must be labelled as a draft and must not be handed to the developer.
+
 
 #### Make every developer task unambiguous
 
