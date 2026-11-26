@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import threading
 
 import pytest
 
@@ -172,6 +173,41 @@ def test_branch_stage_and_commit_require_separate_approvals(mutation_environment
         env["git_executable"], repository, "status", "--porcelain"
     ) == b""
 
+
+
+
+def test_repository_lock_serializes_same_repo_only(mutation_environment, tmp_path):
+    env = mutation_environment
+    other_repository = tmp_path / "other-repository"
+    _initialize_repository(env["git_executable"], other_repository)
+    other_git = GitTool(Workspace(other_repository))
+    same_repository_git = GitTool(Workspace(env["repository"]))
+
+    same_entered = threading.Event()
+    other_entered = threading.Event()
+
+    def enter_same_repository():
+        with same_repository_git.mutation_lock():
+            same_entered.set()
+
+    def enter_other_repository():
+        with other_git.mutation_lock():
+            other_entered.set()
+
+    with env["git"].mutation_lock():
+        same_thread = threading.Thread(target=enter_same_repository)
+        other_thread = threading.Thread(target=enter_other_repository)
+        same_thread.start()
+        other_thread.start()
+
+        assert other_entered.wait(2)
+        assert not same_entered.wait(0.1)
+
+    assert same_entered.wait(2)
+    same_thread.join(timeout=2)
+    other_thread.join(timeout=2)
+    assert not same_thread.is_alive()
+    assert not other_thread.is_alive()
 
 
 def test_branch_creation_rejects_dirty_and_detached_repositories(mutation_environment):
