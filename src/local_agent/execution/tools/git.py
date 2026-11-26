@@ -11,6 +11,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path, PureWindowsPath
+
 from local_agent.execution.tools._windows_runner import (
     MAX_OUTPUT_SIZE,
     ProcessResult,
@@ -383,9 +384,8 @@ class GitTool:
                 *(f"LPT{number}" for number in range(1, 10)),
             }
             if (
-                value.startswith("/")
+                value.startswith(("/", ":"))
                 or any(part in {"", ".", ".."} for part in parts)
-                or value.startswith(":")
                 or any(":" in part or part.endswith((".", " ")) for part in parts)
                 or any(part.split(".", 1)[0].upper() in reserved_windows_names for part in parts)
                 or any(character in value for character in "*?[]")
