@@ -375,7 +375,7 @@ class ToolExecutor:
             "git_stage", "git_commit"
         } else None
         try:
-            normalized, snapshot = self._tools[tool_name].execute.__self__.prepare_mutation(
+            normalized, snapshot = self._git_tool.prepare_mutation(
                 tool_name, parameters, receipt
             )
         except (ValueError, TypeError, RuntimeError, OSError) as error:
@@ -413,7 +413,7 @@ class ToolExecutor:
                 "git_stage", "git_commit"
             } else None
             try:
-                current_normalized, current_snapshot = git_tool.prepare_mutation(
+                current_normalized, current_snapshot = git_tool.capture_mutation_snapshot(
                     tool_name, parameters, current_receipt
                 )
             except (ValueError, TypeError, RuntimeError, OSError) as error:
@@ -444,6 +444,13 @@ class ToolExecutor:
                 return self._failed(
                     "Git repository changed after approval; the original operation was not executed"
                 )
+
+            try:
+                git_tool._validate_mutation_preconditions(
+                    tool_name, current_normalized, current_snapshot, current_receipt
+                )
+            except (ValueError, TypeError, RuntimeError, OSError) as error:
+                return self._record_validation_failure(task_id, str(error))
 
             try:
                 if not self._approval_manager.is_approved(
