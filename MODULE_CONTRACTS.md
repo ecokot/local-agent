@@ -5,8 +5,8 @@
 > **Проект:** `local-agent`
 > **Репозиторий:** https://github.com/ecokot/local-agent
 > **Основная ветка:** `main`
-> **Коммит проверенной версии кода:** `efb45cd`
-> **Актуальность:** 2026-11-25
+> **Коммит проверенной версии кода:** `fb1ae8908ba3b253c1ce817d48b5afd26622c96d`
+> **Актуальность:** 2026-11-27
 > **Среда:** Windows 11, Python 3.12+, `uv`, PowerShell, PyCharm
 >
 > Публичные контракты и связи модулей сверены с исходниками указанного коммита. Карта тестов описывает покрытие, присутствующее в этом коммите.
@@ -339,7 +339,7 @@
 - src/local_agent/execution/tools/git.py
 - src/local_agent/execution/workspace.py
 
-**Тесты:** test/test_tool_executor.py, test/test_tool_executor_adapter.py, test/integration/test_git_mutations_windows.py и отдельные тесты инструментов.
+**Тесты:** test/test_tool_executor.py, test/test_tool_executor_adapter.py, test/integration/test_git_mutations_windows.py, test/integration/test_git_adapter_windows.py и отдельные тесты инструментов.
 
 Назначение: единая точка запуска фиксированного набора инструментов. ToolExecutor связывает переданные экземпляры инструментов с ApprovalManager и ExecutionRecorder.
 
@@ -413,7 +413,7 @@ Read-only Git-действия отображаются на методы пер
 
 **Файл:** `src/local_agent/execution/tools/git.py`  
 **Внутренний runner:** `src/local_agent/execution/tools/_windows_runner.py`  
-**Тесты:** `test/test_git_tool.py`, `test/test_windows_runner.py`, `test/integration/test_git_tool_windows.py`, `test/integration/test_git_mutations_windows.py`.
+**Тесты:** `test/test_git_tool.py`, `test/test_windows_runner.py`, `test/integration/test_git_tool_windows.py`, `test/integration/test_git_mutations_windows.py`, `test/integration/test_git_adapter_windows.py`.
 
 Назначение: читать состояние локального Git-репозитория и выполнять три строго ограниченные изменяющие операции в репозитории, корень которого совпадает с `Workspace.root`. GitTool запускает установленный `git.exe` непосредственно на Windows-хосте; Docker ExecutionBackend для этих операций не используется.
 
@@ -1030,17 +1030,18 @@ ExecutionRecorder поддерживает несколько Execution для �
 | test/test_recovery_manager.py                          | Проверка истории выполнений и восстановление состояния задач.                                                                    |
 | test/test_state_manager.py                             | Создание задач, чтение и допустимые/недопустимые переходы.                                                                       |
 | test/test_tool_executor.py                             | Проверка диспетчеризации инструментов, валидации параметров, подтверждений и записи результатов выполнения.                      |
+| test/test_tool_executor_adapter.py                     | Проверка выполнения шагов плана, паузы/продолжения после approval, повторного использования завершённых шагов и Orchestrator с тестовыми инструментами. |
 | test/test_git_tool.py | Unit-тесты GitTool: проверка Workspace/repository, восьми read-only операций, параметров, результатов и ошибок. |
 | test/test_windows_runner.py | Unit-тесты Win32 runner: порядок запуска, Job Object, handle whitelist, reader lifecycle, timeout, ошибки API и cleanup. |
 | test/integration/test_git_tool_windows.py | Windows integration tests GitTool: реальные Git-репозитории, linked worktree, read-only snapshot и проверка отсутствия наследования постороннего handle. |
 | test/integration/test_git_mutations_windows.py | Windows integration tests трёх подтверждаемых Git-операций, changed snapshot, cancellation, SQLite receipt restart, фильтров, hooks, точного stage scope и commit postconditions. |
-| test/integration/test_git_mutations_windows.py | Windows integration tests трёх подтверждаемых Git-операций, changed snapshot, cancellation, точного stage scope и commit postconditions. |
+| test/integration/test_git_adapter_windows.py | Сквозная Windows-проверка реального GitTool через Orchestrator, ToolExecutorAdapter и ToolExecutor: ожидание approval, отсутствие `git add` до подтверждения, resume без повтора завершённого шага и запись ExecutionRecorder. |
 | test/test_run_command.py                                | Unit-тесты RunCommandTool: передача команды Backend, преобразование результата, ограничение вывода и обработка ошибок Backend.   |
 | test/test_run_tests.py                                   | Unit-тесты RunTestsTool: фиксированная команда pytest, преобразование результата и обработка ошибок RunCommandTool.              |
 | test/test_execution_backend.py                         | Unit-тесты ExecutionBackend: формирование команды Docker, валидация параметров, обработка ошибок, тайм-аут и очистка контейнера. |
 | test/integration/test_execution_backend_integration.py | Docker integration tests: выполнение команд через ExecutionBackend, stdout/stderr, exit code, Workspace, UID/GID, ограничения контейнера, очистка контейнера, а также сквозная проверка RunCommandTool и RunTestsTool через реальный Docker Backend. |
 
-Тесты не заменяют проверку фактической интеграции. GitTool остаётся самостоятельным read-only компонентом, зарегистрированным в ToolExecutor и доступным через общий маршрут ToolExecutorAdapter; Git-специфичной логики в Adapter нет. ModelClient и ContextManager остаются вне автоматической цепочки Orchestrator. ExecutionRecorder, напротив, вызывается ToolExecutor при каждом фактическом запуске инструмента; это не означает, что Orchestrator управляет журналом напрямую.
+Сквозная проверка `test/integration/test_git_adapter_windows.py` подтверждает прохождение реального Git-действия по цепочке `Orchestrator → ToolExecutorAdapter → ToolExecutor → GitTool` без Git-специфичной логики в Adapter. Тест проверяет двухфазное approval, фактическое изменение index после подтверждения, отсутствие повторного выполнения завершённого шага и записи ExecutionRecorder. Остальные Git integration tests отдельно подтверждают низкоуровневые preconditions, snapshot changes, path scope и сохранность repository state. ModelClient и ContextManager остаются вне автоматической цепочки Orchestrator. ExecutionRecorder, напротив, вызывается ToolExecutor при каждом фактическом запуске инструмента; это не означает, что Orchestrator управляет журналом напрямую.
 
 ## 8. Что пока не реализовано как единая система
 
