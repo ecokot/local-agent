@@ -460,6 +460,7 @@ class GitTool:
             "conflicts_hex": conflicts.hex(),
             "selected_files": selected_files,
             "previous_stage_receipt": previous_stage_receipt,
+            "hook_state": self._hook_snapshot(),
         }
 
     def _file_fingerprint(self, relative_path: str) -> dict:
@@ -614,6 +615,7 @@ class GitTool:
 
         if operation == "git_create_and_switch_branch":
             branch_name = normalized["branch_name"]
+            self._ensure_no_hooks()
             self._execute("create_and_switch_branch", ["switch", "-c", branch_name])
             after = self._capture_mutation_snapshot(operation, normalized, None)
             if after["branch"] != branch_name or after["head"] != current["head"] or after["status_entries_hex"]:
@@ -668,7 +670,7 @@ class GitTool:
             }
 
         if operation == "git_commit":
-            self._ensure_no_commit_hooks()
+            self._ensure_no_hooks()
             index_before = self._parse_index_entries(bytes.fromhex(current["index_entries_hex"]))
             old_head = current["head"]
             self._execute(
@@ -704,16 +706,67 @@ class GitTool:
 
         raise ValueError(f"Unsupported Git mutation: {operation}")
 
-    def _ensure_no_commit_hooks(self) -> None:
+    def _hook_snapshot(self) -> dict:
         configured = self._invoke(
-            "commit_hooks_config", ["config", "--get", "core.hooksPath"], check=False
+            "hooks_path_config", ["config", "--get", "core.hooksPath"], check=False
         )
-        if configured.exit_code == 0 and configured.stdout_bytes.strip():
-            raise GitToolError("git_commit is blocked when core.hooksPath is configured")
-        if configured.exit_code not in {0, 1}:
-            raise GitCommandError("commit_hooks_config", configured.exit_code, configured.stderr)
-        hooks_path = self._git_path("hooks")
-        for name in ("pre-commit", "prepare-commit-msg", "commit-msg"):
-            if (hooks_path / name).exists():
-                raise GitToolError(f"git_commit is blocked by an active {name} hook")
+        if configured.exit_code == 0:
+            configured_path = configured.stdout_bytes.decode(
+                "utf-8", errors="strict"
+            ).strip()
+        elif configured.exit_code == 1:
+            configured_path = None
+        else:
+            raise GitCommandError(
+                "hooks_path_config", configured.exit_code, configured.stderr
+            )
+
+        if configured_path:
+            hooks_path = Path(configured_path)
+            if not hooks_path.is_absolute():
+                hooks_path = self._workspace.root / hooks_path
+        else:
+            hooks_path = self._git_path("hooks")
+
+        files = {}
+        if hooks_path.exists():
+            if hooks_path.is_symlink() or not hooks_path.is_dir():
+                files["<hooks-directory>"] = {"type": "unsafe"}
+            else:
+                for entry in sorted(hooks_path.iterdir(), key=lambda item: item.name):
+                    if entry.name.endswith(".sample"):
+                        continue
+                    metadata = entry.lstat()
+                    if stat.S_ISLNK(metadata.st_mode):
+                        fingerprint = {
+                            "type": "symlink",
+                            "target": os.readlink(entry),
+                        }
+                    elif stat.S_ISREG(metadata.st_mode):
+                        content = entry.read_bytes()
+                        fingerprint = {
+                            "type": "file",
+                            "mode": stat.S_IMODE(metadata.st_mode),
+                            "sha256": hashlib.sha256(content).hexdigest(),
+                        }
+                    else:
+                        fingerprint = {"type": "other"}
+                    files[entry.name] = fingerprint
+
+        return {
+            "configured_path": configured_path,
+            "files": files,
+        }
+
+    def _ensure_no_hooks(self) -> None:
+        hooks = self._hook_snapshot()
+        if hooks["configured_path"]:
+            raise GitToolError(
+                "Git mutation is blocked when core.hooksPath is configured"
+            )
+        if hooks["files"]:
+            names = ", ".join(sorted(hooks["files"]))
+            raise GitToolError(
+                f"Git mutation is blocked by active hook entries: {names}"
+            )
 
