@@ -42,16 +42,29 @@ $excludedDirectories = @(
     "__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache",
     "data", "logs", "traces", "workspace", "htmlcov"
 )
+$excludedFilePatterns = @(
+    ".env", ".env.*", "*.pem", "*.key", "*.p12", "*.pfx",
+    "*credentials*", "*secret*", "*.db", "*.sqlite", "*.sqlite3"
+)
 
 $tracked = @(
     $trackedOutput | Where-Object {
         $normalized = $_ -replace "\\", "/"
         $segments = $normalized.Split("/")
+        $fileName = $segments[-1]
         $blocked = $false
         foreach ($segment in $segments) {
             if ($segment -in $excludedDirectories) {
                 $blocked = $true
                 break
+            }
+        }
+        if (-not $blocked) {
+            foreach ($pattern in $excludedFilePatterns) {
+                if ($fileName -like $pattern -and $fileName -ne ".env.example") {
+                    $blocked = $true
+                    break
+                }
             }
         }
         -not $blocked
