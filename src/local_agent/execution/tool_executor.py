@@ -22,6 +22,12 @@ from local_agent.execution.tools.write_file import WriteFileTool
 from local_agent.models import ApprovalStatus
 
 
+def _blocked_git_mutation_dispatch(**parameters: Any) -> None:
+    raise RuntimeError(
+        "Git mutations must be dispatched through the ToolExecutor approval flow"
+    )
+
+
 @dataclass(frozen=True, slots=True)
 class _ToolDefinition:
     action_type: str
@@ -171,7 +177,7 @@ class ToolExecutor:
             "git_create_and_switch_branch": _ToolDefinition(
                 action_type="GIT_CREATE_AND_SWITCH_BRANCH",
                 requires_approval=True,
-                execute=lambda **parameters: None,
+                execute=_blocked_git_mutation_dispatch,
                 required_parameters=frozenset({"branch_name"}),
                 optional_parameters=frozenset(),
             ),
