@@ -398,6 +398,20 @@ class GitTool:
         parameters: dict,
         previous_stage_receipt: dict | None,
     ) -> dict:
+        common_dir_value = self._snapshot_command(
+            "mutation_snapshot_common_dir", ["rev-parse", "--git-common-dir"]
+        )
+        common_dir_path = Path(os.fsdecode(common_dir_value).strip())
+        if not common_dir_path.is_absolute():
+            common_dir_path = self._workspace.root / common_dir_path
+        common_git_dir = os.path.normcase(
+            str(common_dir_path.resolve(strict=True))
+        )
+        if common_git_dir != self._repository_lock_key:
+            raise GitRepositoryError(
+                "The repository common Git directory changed after GitTool initialization"
+            )
+
         status = self._snapshot_command(
             "mutation_snapshot_status",
             ["--no-optional-locks", "status", "--porcelain=v2", "-z", "--branch", "--untracked-files=all"],
@@ -470,7 +484,7 @@ class GitTool:
 
         return {
             "repository_root": self.repository_root,
-            "common_git_dir": self._repository_lock_key,
+            "common_git_dir": common_git_dir,
             "operation": operation,
             "branch": branch,
             "head": head,
