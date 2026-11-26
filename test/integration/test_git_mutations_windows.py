@@ -181,7 +181,13 @@ def test_repository_lock_serializes_same_repo_only(mutation_environment, tmp_pat
     other_repository = tmp_path / "other-repository"
     _initialize_repository(env["git_executable"], other_repository)
     other_git = GitTool(Workspace(other_repository))
-    same_repository_git = GitTool(Workspace(env["repository"]))
+    linked_worktree = tmp_path / "linked-worktree"
+    _git(
+        env["git_executable"], env["repository"],
+        "worktree", "add", "-q", "-b", "linked", str(linked_worktree),
+    )
+    same_repository_git = GitTool(Workspace(linked_worktree))
+    assert same_repository_git._repository_lock_key == env["git"]._repository_lock_key
 
     same_entered = threading.Event()
     other_entered = threading.Event()
