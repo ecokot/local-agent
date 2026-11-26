@@ -238,6 +238,72 @@ def test_stage_can_extend_only_its_previous_approved_index(mutation_environment)
     ) == b""
 
 
+
+def test_stage_does_not_stage_an_unselected_untracked_file(mutation_environment):
+    env = mutation_environment
+    repository = env["repository"]
+    (repository / "selected.txt").write_text("selected\n", encoding="utf-8")
+    unrelated = repository / "unrelated.txt"
+    unrelated.write_text("preserve me\n", encoding="utf-8")
+
+    result = _approve_and_resume(
+        env, "git_stage", {"paths": ["selected.txt"]}
+    )
+
+    assert result.status == ToolExecutionStatus.SUCCEEDED
+    staged = _git(
+        env["git_executable"], repository,
+        "diff", "--cached", "--name-only",
+    ).decode().splitlines()
+    assert staged == ["selected.txt"]
+    assert unrelated.read_text(encoding="utf-8") == "preserve me\n"
+    assert _git(
+        env["git_executable"], repository,
+        "ls-files", "--others", "--exclude-standard", "-z",
+    ) == b"unrelated.txt\x00"
+
+
+def test_stage_rejects_preexisting_staged_changes(mutation_environment):
+    env = mutation_environment
+    repository = env["repository"]
+    (repository / "already-staged.txt").write_text("staged elsewhere\n", encoding="utf-8")
+    _git(env["git_executable"], repository, "add", "--", "already-staged.txt")
+    (repository / "target.txt").write_text("target\n", encoding="utf-8")
+
+    result = env["executor"].execute(
+        env["task_id"], "git_stage", {"paths": ["target.txt"]}
+    )
+
+    assert result.status == ToolExecutionStatus.FAILED
+    assert _git(
+        env["git_executable"], repository, "diff", "--cached", "--name-only"
+    ).decode().splitlines() == ["already-staged.txt"]
+
+
+def test_commit_rejects_worktree_change_after_stage(mutation_environment):
+    env = mutation_environment
+    repository = env["repository"]
+    target = repository / "target.txt"
+    target.write_text("staged version\n", encoding="utf-8")
+    staged = _approve_and_resume(
+        env, "git_stage", {"paths": ["target.txt"]}
+    )
+    assert staged.status == ToolExecutionStatus.SUCCEEDED
+
+    target.write_text("unstaged modification\n", encoding="utf-8")
+    result = env["executor"].execute(
+        env["task_id"],
+        "git_commit",
+        {"message": "Must not include modified worktree", "paths": ["target.txt"]},
+    )
+
+    assert result.status == ToolExecutionStatus.FAILED
+    assert _git(
+        env["git_executable"], repository, "rev-parse", "HEAD"
+    ).decode().strip() == env["git"].head()
+    assert target.read_text(encoding="utf-8") == "unstaged modification\n"
+
+
 def test_commit_rejects_untracked_changes_outside_staged_paths(mutation_environment):
     env = mutation_environment
     repository = env["repository"]
