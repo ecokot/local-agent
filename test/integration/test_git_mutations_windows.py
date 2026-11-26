@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import shutil
+from dataclasses import replace
 import subprocess
 import threading
 
@@ -11,6 +12,7 @@ from local_agent.approval_manager import ApprovalManager
 from local_agent.execution.models import ToolExecutionStatus
 from local_agent.execution.recorder import ExecutionRecorder
 from local_agent.execution.tool_executor import ToolExecutor
+from local_agent.execution.tools._windows_runner import ProcessResult
 from local_agent.execution.tools.git import GitTool
 from local_agent.execution.workspace import Workspace
 from local_agent.state_manager import StateManager
@@ -585,3 +587,148 @@ def test_commit_rejects_untracked_changes_outside_staged_paths(mutation_environm
     assert _git(
         env["git_executable"], repository, "rev-parse", "HEAD"
     ).decode().strip() == env["git"].head()
+
+
+def test_stage_timeout_reports_failed_without_rollback(mutation_environment):
+    env = mutation_environment
+    repository = env["repository"]
+    target = repository / "timeout.txt"
+    target.write_text("stage may have completed before timeout\n", encoding="utf-8")
+    original_runner = env["git"]._runner
+
+    def timeout_after_stage(executable, arguments, cwd, timeout, max_output_size):
+        result = original_runner(executable, arguments, cwd, timeout, max_output_size)
+        if arguments[3:4] == ("add",) and result.exit_code == 0:
+            return replace(result, timed_out=True)
+        return result
+
+    env["git"]._runner = timeout_after_stage
+    result = _approve_and_resume(env, "git_stage", {"paths": ["timeout.txt"]})
+
+    assert result.status == ToolExecutionStatus.FAILED
+    assert "Timed out" in result.error
+    assert _git(
+        env["git_executable"], repository, "diff", "--cached", "--name-only"
+    ) == b"timeout.txt\n"
+    assert target.read_text(encoding="utf-8") == "stage may have completed before timeout\n"
+    assert _git(
+        env["git_executable"], repository, "status", "--porcelain"
+    ).startswith(b"A  timeout.txt")
+
+
+@pytest.mark.parametrize("truncated_stream", ["stdout", "stderr"])
+def test_stage_output_truncation_reports_failed_without_rollback(
+    mutation_environment, truncated_stream
+):
+    env = mutation_environment
+    repository = env["repository"]
+    target = repository / f"{truncated_stream}-truncated.txt"
+    target.write_text("stage output was truncated\n", encoding="utf-8")
+    original_runner = env["git"]._runner
+
+    def truncate_after_stage(executable, arguments, cwd, timeout, max_output_size):
+        result = original_runner(executable, arguments, cwd, timeout, max_output_size)
+        if arguments[3:4] == ("add",) and result.exit_code == 0:
+            return replace(result, **{f"{truncated_stream}_truncated": True})
+        return result
+
+    env["git"]._runner = truncate_after_stage
+    result = _approve_and_resume(
+        env, "git_stage", {"paths": [target.name]}
+    )
+
+    assert result.status == ToolExecutionStatus.FAILED
+    assert "output was truncated" in result.error
+    assert _git(
+        env["git_executable"], repository, "diff", "--cached", "--name-only"
+    ) == f"{target.name}\n".encode()
+    assert target.read_text(encoding="utf-8") == "stage output was truncated\n"
+    assert _git(
+        env["git_executable"], repository, "status", "--porcelain"
+    ).startswith(b"A  ")
+
+
+def test_commit_postcondition_failure_keeps_executed_commits_for_inspection(
+    mutation_environment
+):
+    env = mutation_environment
+    repository = env["repository"]
+    target = repository / "approved.txt"
+    target.write_text("approved content\n", encoding="utf-8")
+    staged = _approve_and_resume(env, "git_stage", {"paths": ["approved.txt"]})
+    assert staged.status == ToolExecutionStatus.SUCCEEDED
+    old_head = env["git"].head()
+    original_runner = env["git"]._runner
+    injected = repository / "external-after-commit.txt"
+
+    def add_external_commit_after_approved_commit(
+        executable, arguments, cwd, timeout, max_output_size
+    ):
+        result = original_runner(executable, arguments, cwd, timeout, max_output_size)
+        command = arguments[3:]
+        if "commit" in command and result.exit_code == 0:
+            injected.write_text("external concurrent change\n", encoding="utf-8")
+            _git(env["git_executable"], repository, "add", "--", injected.name)
+            _git(
+                env["git_executable"], repository, "commit", "-m",
+                "external concurrent commit",
+            )
+        return result
+
+    env["git"]._runner = add_external_commit_after_approved_commit
+    result = _approve_and_resume(
+        env,
+        "git_commit",
+        {"message": "approved commit", "paths": ["approved.txt"]},
+    )
+
+    assert result.status == ToolExecutionStatus.FAILED
+    assert "git_commit postcondition failed" in result.error
+    assert env["git"].head() != old_head
+    assert _git(
+        env["git_executable"], repository, "show", "-s", "--format=%s", "HEAD^"
+    ).decode().strip() == "approved commit"
+    assert _git(
+        env["git_executable"], repository, "show", "-s", "--format=%s", "HEAD"
+    ).decode().strip() == "external concurrent commit"
+    assert _git(
+        env["git_executable"], repository, "show", "HEAD^:approved.txt"
+    ) == b"approved content\n"
+    assert injected.read_text(encoding="utf-8") == "external concurrent change\n"
+    # The failed postcondition is not converted into success or an automatic rollback.
+    assert _git(
+        env["git_executable"], repository, "status", "--porcelain"
+    ) == b""
+
+
+def test_commit_blocks_active_git_hooks_before_approval(mutation_environment):
+    env = mutation_environment
+    repository = env["repository"]
+    target = repository / "hook-protected.txt"
+    target.write_text("staged content\n", encoding="utf-8")
+    staged = _approve_and_resume(
+        env, "git_stage", {"paths": ["hook-protected.txt"]}
+    )
+    assert staged.status == ToolExecutionStatus.SUCCEEDED
+    original_head = env["git"].head()
+
+    hooks = repository / ".git" / "hooks"
+    hooks.mkdir(exist_ok=True)
+    hook = hooks / "pre-commit"
+    hook.write_text("#!/bin/sh\necho executed > hook-ran.txt\nexit 1\n", encoding="utf-8")
+
+    result = env["executor"].execute(
+        env["task_id"],
+        "git_commit",
+        {"message": "must be blocked by hook", "paths": ["hook-protected.txt"]},
+    )
+
+    assert result.status == ToolExecutionStatus.FAILED
+    assert "active Git hooks" in result.error
+    assert env["git"].head() == original_head
+    assert _git(
+        env["git_executable"], repository, "diff", "--cached", "--name-only"
+    ) == b"hook-protected.txt\n"
+    assert hook.exists()
+    assert not (repository / "hook-ran.txt").exists()
+
