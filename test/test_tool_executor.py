@@ -656,3 +656,23 @@ def test_git_tool_error_is_recorded(executor_environment, execution_recorder):
         "EXECUTION_STARTED",
         "EXECUTION_FAILED",
     ]
+
+
+
+def test_git_parameter_validation_failure_is_recorded(
+    executor_environment,
+    execution_recorder,
+):
+    executor, _, task_id, tools = executor_environment
+
+    result = executor.execute(task_id, "git_log", {"limit": True})
+
+    assert result.status == ToolExecutionStatus.FAILED
+    assert result.execution_id is not None
+    assert tools["git"].calls == []
+    assert execution_recorder.get_status(result.execution_id) == "FAILED"
+    events = execution_recorder.get_events(result.execution_id)
+    assert [event.event_type for event in events] == [
+        "EXECUTION_STARTED",
+        "EXECUTION_FAILED",
+    ]
