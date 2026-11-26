@@ -95,7 +95,7 @@ function Get-ProjectTree {
     for ($i = 0; $i -lt $items.Count; $i++) {
         $item = $items[$i]
         $last = $i -eq ($items.Count - 1)
-        $branch = if ($last) { "\\--- " } else { "+--- " }
+        $branch = if ($last) { "\--- " } else { "+--- " }
         "$Prefix$branch$($item.Name)"
 
         if ($item.IsDirectory) {
