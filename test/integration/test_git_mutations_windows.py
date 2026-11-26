@@ -729,13 +729,13 @@ def test_commit_blocks_tilde_expanded_hooks_path_before_approval(
         "#!/bin/sh\\necho executed > hook-ran.txt\\nexit 1\\n",
         encoding="utf-8",
     )
-    effective_hooks = Path(
+    effective_hooks = os.path.abspath(
         os.fsdecode(
             _git(env["git_executable"], repository, "rev-parse", "--git-path", "hooks")
         ).strip()
     )
-    assert os.path.normcase(str(effective_hooks.resolve())) == os.path.normcase(
-        str(hooks.resolve())
+    assert os.path.normcase(effective_hooks) == os.path.normcase(
+        os.path.abspath(str(hooks))
     )
 
     result = env["executor"].execute(
