@@ -336,16 +336,20 @@
 - src/local_agent/execution/tools/get_diff.py
 - src/local_agent/execution/tools/run_command.py
 - src/local_agent/execution/tools/run_tests.py
+- src/local_agent/execution/tools/git.py
 - src/local_agent/execution/workspace.py
 
-**Тесты:** test/test_tool_executor.py и отдельные тесты инструментов.
+**Тесты:** test/test_tool_executor.py, test/test_tool_executor_adapter.py и отдельные тесты инструментов.
 
-Назначение: единая точка запуска инструментов. ToolExecutor связывает фиксированный набор инструментов с ApprovalManager и ExecutionRecorder.
+Назначение: единая точка запуска фиксированного набора инструментов. ToolExecutor связывает переданные экземпляры инструментов с ApprovalManager и ExecutionRecorder.
 
 Конструктор принимает:
 - approval_manager: ApprovalManager
-- экземпляры семи инструментов
-- execution_recorder: ExecutionRecorder
+- экземпляры семи существующих инструментов;
+- git_tool: GitTool — существующий экземпляр read-only GitTool;
+- execution_recorder: ExecutionRecorder.
+
+ToolExecutor не создаёт GitTool самостоятельно. Создание GitTool и Workspace остаётся ответственностью composition root вызывающего приложения.
 
 Публичный метод:
 
@@ -353,15 +357,25 @@
 
 Поддерживаемые имена инструментов:
 
-| Инструмент | Требует подтверждения |
-|---|---|
-| list_directory | Нет |
-| read_file | Нет |
-| create_file | Да |
-| write_file | Да |
-| get_diff | Нет |
-| run_command | Да |
-| run_tests | Да |
+| Инструмент | Action type | Параметры | Требует подтверждения |
+|---|---|---|---|
+| list_directory | LIST_DIRECTORY | path, max_depth, max_entries (необязательные) | Нет |
+| read_file | READ_FILE | path | Нет |
+| create_file | CREATE_FILE | path, content | Да |
+| write_file | WRITE_FILE | path, content | Да |
+| get_diff | GET_DIFF | path, original_content | Нет |
+| run_command | RUN_COMMAND | command | Да |
+| run_tests | RUN_TESTS | нет | Да |
+| git_status | GIT_STATUS | нет | Нет |
+| git_branch | GIT_BRANCH | нет | Нет |
+| git_head | GIT_HEAD | нет | Нет |
+| git_branches | GIT_BRANCHES | нет | Нет |
+| git_log | GIT_LOG | limit: int, необязательный, default 20, диапазон 1..100 | Нет |
+| git_diff | GIT_DIFF | paths: list[str], необязательный, default [] | Нет |
+| git_staged_diff | GIT_STAGED_DIFF | paths: list[str], необязательный, default [] | Нет |
+| git_changed_files | GIT_CHANGED_FILES | нет | Нет |
+
+Git-действия отображаются на методы переданного GitTool: status, branch, head, branches, log, diff, staged_diff и changed_files соответственно. Валидация имён параметров и ограничений limit/container paths выполняется ToolExecutor до вызова GitTool; проверка безопасности и содержимого отдельных путей остаётся ответственностью GitTool.
 
 Поведение:
 
@@ -370,7 +384,8 @@
 - Для рискованных действий ToolExecutor запрашивает подтверждение через ApprovalManager.
 - При PENDING возвращает WAITING_FOR_APPROVAL без запуска инструмента.
 - После APPROVED начинает запись выполнения через ExecutionRecorder, затем непосредственно перед вызовом инструмента повторно проверяет разрешение через is_approved() с теми же task_id, action_type и parameters.
-- Инструмент вызывается только после успешной повторной проверки разрешения.
+- Read-only Git-действия не вызывают request_approval() или is_approved(); они выполняются через общий механизм ExecutionRecorder.
+- Ошибки валидации параметров Git-действий фиксируются как неуспешные выполнения через ExecutionRecorder до вызова GitTool; некорректные параметры не доходят до инструмента.
 - При успешном выполнении вызывается finish_execution().
 - При перехваченной ошибке выполнения вызывается fail_execution().
 - Если запись результата в ExecutionRecorder завершается ошибкой, ToolExecutor возвращает FAILED и сообщает об ошибке журналирования.
@@ -379,9 +394,10 @@
 
 - Вызывающий код передаёт имя инструмента и параметры, но не может передать собственную политику разрешений или объект произвольного инструмента.
 - ToolExecutor не заменяет ApprovalManager и ExecutionRecorder.
-- ToolExecutor вызывается из ToolExecutorAdapter, который реализует контракт Executor и последовательно исполняет шаги Plan.
+- ToolExecutor вызывается из ToolExecutorAdapter, который реализует контракт Executor и последовательно исполняет шаги Plan; Adapter не содержит Git-специфичной диспетчеризации.
 - Для требующих подтверждения действий ToolExecutor создаёт запрос через ApprovalManager. При PENDING возвращает WAITING_FOR_APPROVAL; после одобрения повторный вызов ToolExecutor с теми же параметрами позволяет выполнить действие.
 - run_command и run_tests требуют подтверждения. ToolExecutor повторно проверяет одобрение непосредственно перед вызовом соответствующего инструмента.
+- GitTool предоставляет только read-only операции и не запрашивает подтверждение; изменяющие Git-действия не зарегистрированы.
 - RunCommandTool передаёт команду в ExecutionBackend; Backend запускает её в Docker-контейнере с явно смонтированным Workspace.
 - RunTestsTool использует тот же путь исполнения через RunCommandTool и ExecutionBackend.
 - ToolExecutor отвечает за диспетчеризацию, подтверждения и запись выполнения; ExecutionBackend отвечает за запуск команды в Docker и очистку контейнера.
@@ -432,7 +448,7 @@ Windows runner:
 - Reader threads обрабатывают stdout/stderr параллельно; timeout, отмена чтения и cleanup handles обрабатываются runner.
 - `ProcessResult` содержит stdout/stderr bytes, exit_code, timed_out и признаки усечения потоков.
 
-**Граница подэтапа 9.Б:** GitTool реализован самостоятельно, но пока не входит в фиксированный набор ToolExecutor и не вызывается через ToolExecutorAdapter/Orchestrator. Регистрация и передача параметров относятся к 9.В. Все изменяющие Git-операции и подтверждения относятся к 9.Г. Нельзя считать read-only интерфейс доказательством наличия write-операций.
+**Граница подэтапа 9.Б:** GitTool реализован как самостоятельный read-only компонент. Его регистрация в ToolExecutor и доступ через общий маршрут ToolExecutorAdapter реализованы в задаче LA-9C-01 (подэтап 9.В). Все изменяющие Git-операции и подтверждения относятся к 9.Г. Нельзя считать read-only интерфейс доказательством наличия write-операций.
 
 #### RunCommandTool — выполнение системных команд
 
@@ -965,7 +981,7 @@ ExecutionRecorder поддерживает несколько Execution для �
 | Контекст модели формируется приложением явно                | ContextManager реализует список сообщений, но пока не интегрирован с Orchestrator/ModelClient.                                                                                                                                                      |
 | Подтверждение привязано к действию и параметрам             | Реализовано в ApprovalManager через action_type и parameters_hash.                                                                                                                                                                                  |
 | Отмена идентичного действия окончательна                    | Реализована блокировка повторного запроса с теми же параметрами после CANCELLED.                                                                                                                                                                    |
-| Рискованные действия требуют подтверждения Python           | Реализовано в исполнительной цепочке: ToolExecutorAdapter → ToolExecutor → ApprovalManager. create_file, write_file, run_command и run_tests требуют подтверждения; list_directory, read_file и get_diff выполняются без него.                 |
+| Рискованные действия требуют подтверждения Python           | Реализовано в исполнительной цепочке: ToolExecutorAdapter → ToolExecutor → ApprovalManager. create_file, write_file, run_command и run_tests требуют подтверждения; list_directory, read_file, get_diff и все восемь git_* действий выполняются без него.                 |
 | История выполнений используется при восстановлении          | ToolExecutor записывает каждый вызов инструмента через ExecutionRecorder; RecoveryManager отдельно проверяет сохранённую историю. Автоматический запуск RecoveryManager при старте не подключён.                                                     |
 | Контекст и данные задачи не зависят от неявной истории чата | Целевое правило; ContextManager существует, но его сборка в единый контекст задачи ещё не интегрирована.                                                                                                                                            |
 | Не добавлять менеджеры и абстракции без необходимости       | Действующее архитектурное правило проекта, не машинно проверяемый инвариант.                                                                                                                                                                        |
@@ -1007,7 +1023,7 @@ ExecutionRecorder поддерживает несколько Execution для �
 | test/test_execution_backend.py                         | Unit-тесты ExecutionBackend: формирование команды Docker, валидация параметров, обработка ошибок, тайм-аут и очистка контейнера. |
 | test/integration/test_execution_backend_integration.py | Docker integration tests: выполнение команд через ExecutionBackend, stdout/stderr, exit code, Workspace, UID/GID, ограничения контейнера, очистка контейнера, а также сквозная проверка RunCommandTool и RunTestsTool через реальный Docker Backend. |
 
-Тесты не заменяют проверку фактической интеграции. GitTool — самостоятельный read-only компонент; его интеграция в ToolExecutor/Adapter ещё не выполнена (подэтап 9.В). ModelClient и ContextManager остаются вне автоматической цепочки Orchestrator. ExecutionRecorder, напротив, вызывается ToolExecutor при каждом фактическом запуске инструмента; это не означает, что Orchestrator управляет журналом напрямую.
+Тесты не заменяют проверку фактической интеграции. GitTool остаётся самостоятельным read-only компонентом, зарегистрированным в ToolExecutor и доступным через общий маршрут ToolExecutorAdapter; Git-специфичной логики в Adapter нет. ModelClient и ContextManager остаются вне автоматической цепочки Orchestrator. ExecutionRecorder, напротив, вызывается ToolExecutor при каждом фактическом запуске инструмента; это не означает, что Orchestrator управляет журналом напрямую.
 
 ## 8. Что пока не реализовано как единая система
 

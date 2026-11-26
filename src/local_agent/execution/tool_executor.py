@@ -13,6 +13,7 @@ from local_agent.execution.recorder import (
 )
 from local_agent.execution.tools.create_file import CreateFileTool
 from local_agent.execution.tools.get_diff import GetDiffTool
+from local_agent.execution.tools.git import GitTool
 from local_agent.execution.tools.list_directory import ListDirectoryTool
 from local_agent.execution.tools.read_file import ReadFileTool
 from local_agent.execution.tools.run_command import RunCommandTool
@@ -44,6 +45,7 @@ class ToolExecutor:
             get_diff: GetDiffTool,
             run_command: RunCommandTool,
             run_tests: RunTestsTool,
+            git_tool: GitTool,
             execution_recorder: ExecutionRecorder,
     ) -> None:
         self._approval_manager = approval_manager
@@ -105,6 +107,66 @@ class ToolExecutor:
                 required_parameters=frozenset(),
                 optional_parameters=frozenset(),
             ),
+            "git_status": _ToolDefinition(
+                action_type="GIT_STATUS",
+                requires_approval=False,
+                execute=git_tool.status,
+                required_parameters=frozenset(),
+                optional_parameters=frozenset(),
+            ),
+            "git_branch": _ToolDefinition(
+                action_type="GIT_BRANCH",
+                requires_approval=False,
+                execute=git_tool.branch,
+                required_parameters=frozenset(),
+                optional_parameters=frozenset(),
+            ),
+            "git_head": _ToolDefinition(
+                action_type="GIT_HEAD",
+                requires_approval=False,
+                execute=git_tool.head,
+                required_parameters=frozenset(),
+                optional_parameters=frozenset(),
+            ),
+            "git_branches": _ToolDefinition(
+                action_type="GIT_BRANCHES",
+                requires_approval=False,
+                execute=git_tool.branches,
+                required_parameters=frozenset(),
+                optional_parameters=frozenset(),
+            ),
+            "git_log": _ToolDefinition(
+                action_type="GIT_LOG",
+                requires_approval=False,
+                execute=lambda limit=20: git_tool.log(limit),
+                required_parameters=frozenset(),
+                optional_parameters=frozenset({"limit"}),
+            ),
+            "git_diff": _ToolDefinition(
+                action_type="GIT_DIFF",
+                requires_approval=False,
+                execute=lambda paths=None: git_tool.diff(
+                    [] if paths is None else paths
+                ),
+                required_parameters=frozenset(),
+                optional_parameters=frozenset({"paths"}),
+            ),
+            "git_staged_diff": _ToolDefinition(
+                action_type="GIT_STAGED_DIFF",
+                requires_approval=False,
+                execute=lambda paths=None: git_tool.staged_diff(
+                    [] if paths is None else paths
+                ),
+                required_parameters=frozenset(),
+                optional_parameters=frozenset({"paths"}),
+            ),
+            "git_changed_files": _ToolDefinition(
+                action_type="GIT_CHANGED_FILES",
+                requires_approval=False,
+                execute=git_tool.changed_files,
+                required_parameters=frozenset(),
+                optional_parameters=frozenset(),
+            ),
         }
 
     def execute(
@@ -130,7 +192,22 @@ class ToolExecutor:
         )
 
         if validation_error is not None:
+            if tool_name.startswith("git_"):
+                return self._record_validation_failure(
+                    task_id,
+                    validation_error,
+                )
             return self._failed(validation_error)
+
+        validation_error = self._validate_git_parameters(
+            tool_name,
+            parameters,
+        )
+        if validation_error is not None:
+            return self._record_validation_failure(
+                task_id,
+                validation_error,
+            )
 
         if definition.requires_approval:
             try:
@@ -272,6 +349,60 @@ class ToolExecutor:
             return f"Unexpected parameters: {', '.join(sorted(unexpected))}"
 
         return None
+
+    @staticmethod
+    def _validate_git_parameters(
+        tool_name: str,
+        parameters: dict[str, Any],
+    ) -> str | None:
+        if tool_name == "git_log":
+            limit = parameters.get("limit", 20)
+            if (
+                isinstance(limit, bool)
+                or not isinstance(limit, int)
+                or not 1 <= limit <= 100
+            ):
+                return "Parameter 'limit' must be an integer between 1 and 100"
+
+        if tool_name in {"git_diff", "git_staged_diff"}:
+            paths = parameters.get("paths", [])
+            if not isinstance(paths, list):
+                return "Parameter 'paths' must be a list"
+
+        return None
+
+    def _record_validation_failure(
+        self,
+        task_id: str,
+        error: str,
+    ) -> ToolExecutionResult:
+        try:
+            execution_id = self._execution_recorder.start_execution(task_id)
+        except ExecutionRecorderError as recorder_error:
+            return self._failed(
+                f"Parameter validation failed: {error}. "
+                "Could not start execution record: "
+                f"{recorder_error}"
+            )
+
+        try:
+            self._execution_recorder.fail_execution(execution_id, error)
+        except ExecutionRecorderError as recorder_error:
+            return ToolExecutionResult(
+                status=ToolExecutionStatus.FAILED,
+                execution_id=execution_id,
+                error=(
+                    f"Parameter validation failed: {error}. "
+                    "Additionally, validation failure could not be "
+                    f"recorded: {recorder_error}"
+                ),
+            )
+
+        return ToolExecutionResult(
+            status=ToolExecutionStatus.FAILED,
+            execution_id=execution_id,
+            error=error,
+        )
 
     @staticmethod
     def _failed(error: str) -> ToolExecutionResult:

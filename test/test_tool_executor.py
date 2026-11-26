@@ -29,6 +29,43 @@ class FakeTool:
         }
 
 
+
+class FakeGitTool:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict]] = []
+        self.error: Exception | None = None
+
+    def _call(self, method: str, **parameters: object) -> dict:
+        self.calls.append((method, parameters))
+        if self.error is not None:
+            raise self.error
+        return {"method": method, "parameters": parameters}
+
+    def status(self) -> dict:
+        return self._call("status")
+
+    def branch(self) -> dict:
+        return self._call("branch")
+
+    def head(self) -> dict:
+        return self._call("head")
+
+    def branches(self) -> dict:
+        return self._call("branches")
+
+    def log(self, limit: int = 20) -> dict:
+        return self._call("log", limit=limit)
+
+    def diff(self, paths=()) -> dict:
+        return self._call("diff", paths=paths)
+
+    def staged_diff(self, paths=()) -> dict:
+        return self._call("staged_diff", paths=paths)
+
+    def changed_files(self) -> dict:
+        return self._call("changed_files")
+
+
 @pytest.fixture
 def state_manager(tmp_path):
     manager = StateManager(tmp_path / "state.db")
@@ -67,6 +104,7 @@ def executor_environment(state_manager, execution_recorder):
             "run_tests",
         )
     }
+    tools["git"] = FakeGitTool()
 
     executor = ToolExecutor(
         approval_manager=approval_manager,
@@ -78,6 +116,7 @@ def executor_environment(state_manager, execution_recorder):
         get_diff=tools["get_diff"],
         run_command=tools["run_command"],
         run_tests=tools["run_tests"],
+        git_tool=tools["git"],
     )
 
     return executor, approval_manager, task_id, tools
@@ -432,3 +471,208 @@ def test_is_approved_exception_prevents_execution(
 
     assert len(executions) == 1
     assert execution_recorder.get_status(executions[0].execution_id) == "FAILED"
+
+
+
+@pytest.mark.parametrize(
+    ("action", "method", "action_type"),
+    [
+        ("git_status", "status", "GIT_STATUS"),
+        ("git_branch", "branch", "GIT_BRANCH"),
+        ("git_head", "head", "GIT_HEAD"),
+        ("git_branches", "branches", "GIT_BRANCHES"),
+        ("git_log", "log", "GIT_LOG"),
+        ("git_diff", "diff", "GIT_DIFF"),
+        ("git_staged_diff", "staged_diff", "GIT_STAGED_DIFF"),
+        ("git_changed_files", "changed_files", "GIT_CHANGED_FILES"),
+    ],
+)
+def test_git_actions_are_registered_and_use_injected_tool(
+    executor_environment,
+    action,
+    method,
+    action_type,
+):
+    executor, _, task_id, tools = executor_environment
+
+    definition = executor._tools[action]
+    result = executor.execute(task_id, action, {})
+
+    assert definition.action_type == action_type
+    assert definition.requires_approval is False
+    assert result.status == ToolExecutionStatus.SUCCEEDED
+    assert tools["git"].calls[0][0] == method
+
+
+def test_git_actions_do_not_request_approval(executor_environment, monkeypatch):
+    executor, approval_manager, task_id, _ = executor_environment
+
+    def unexpected_approval(**kwargs):
+        raise AssertionError("read-only Git action requested approval")
+
+    monkeypatch.setattr(approval_manager, "request_approval", unexpected_approval)
+    monkeypatch.setattr(approval_manager, "is_approved", unexpected_approval)
+
+    for action in (
+        "git_status",
+        "git_branch",
+        "git_head",
+        "git_branches",
+        "git_log",
+        "git_diff",
+        "git_staged_diff",
+        "git_changed_files",
+    ):
+        result = executor.execute(task_id, action, {})
+        assert result.status == ToolExecutionStatus.SUCCEEDED
+
+
+@pytest.mark.parametrize(
+    "action",
+    (
+        "git_status",
+        "git_branch",
+        "git_head",
+        "git_branches",
+        "git_changed_files",
+    ),
+)
+def test_git_actions_without_parameters_reject_extra_values(
+    executor_environment,
+    action,
+):
+    executor, _, task_id, tools = executor_environment
+
+    result = executor.execute(task_id, action, {"unexpected": True})
+
+    assert result.status == ToolExecutionStatus.FAILED
+    assert "Unexpected parameters" in result.error
+    assert tools["git"].calls == []
+
+
+@pytest.mark.parametrize(
+    ("parameters", "expected_limit"),
+    [({}, 20), ({"limit": 1}, 1), ({"limit": 100}, 100)],
+)
+def test_git_log_accepts_default_and_boundary_limits(
+    executor_environment,
+    parameters,
+    expected_limit,
+):
+    executor, _, task_id, tools = executor_environment
+
+    result = executor.execute(task_id, "git_log", parameters)
+
+    assert result.status == ToolExecutionStatus.SUCCEEDED
+    assert tools["git"].calls == [("log", {"limit": expected_limit})]
+
+
+@pytest.mark.parametrize(
+    "limit",
+    [0, 101, -1, "20", 1.5, True, False],
+)
+def test_git_log_rejects_invalid_limits_before_tool_call(
+    executor_environment,
+    limit,
+):
+    executor, _, task_id, tools = executor_environment
+
+    result = executor.execute(task_id, "git_log", {"limit": limit})
+
+    assert result.status == ToolExecutionStatus.FAILED
+    assert "limit" in result.error
+    assert tools["git"].calls == []
+
+
+@pytest.mark.parametrize(
+    ("action", "method"),
+    [("git_diff", "diff"), ("git_staged_diff", "staged_diff")],
+)
+def test_git_diff_actions_default_to_empty_path_list(
+    executor_environment,
+    action,
+    method,
+):
+    executor, _, task_id, tools = executor_environment
+
+    result = executor.execute(task_id, action, {})
+
+    assert result.status == ToolExecutionStatus.SUCCEEDED
+    assert tools["git"].calls == [(method, {"paths": []})]
+
+
+@pytest.mark.parametrize(
+    ("action", "method"),
+    [("git_diff", "diff"), ("git_staged_diff", "staged_diff")],
+)
+def test_git_diff_actions_forward_paths_without_loss(
+    executor_environment,
+    action,
+    method,
+):
+    executor, _, task_id, tools = executor_environment
+    paths = ["src/a.py", "docs/a b.md"]
+
+    result = executor.execute(task_id, action, {"paths": paths})
+
+    assert result.status == ToolExecutionStatus.SUCCEEDED
+    assert tools["git"].calls == [(method, {"paths": paths})]
+
+
+@pytest.mark.parametrize(
+    ("action", "parameters"),
+    [
+        ("git_log", {"unknown": 1}),
+        ("git_diff", {"unknown": []}),
+        ("git_staged_diff", {"unknown": []}),
+        ("git_diff", {"paths": "file.py"}),
+        ("git_staged_diff", {"paths": ("file.py",)}),
+    ],
+)
+def test_git_actions_reject_unknown_parameters_and_invalid_path_container(
+    executor_environment,
+    action,
+    parameters,
+):
+    executor, _, task_id, tools = executor_environment
+
+    result = executor.execute(task_id, action, parameters)
+
+    assert result.status == ToolExecutionStatus.FAILED
+    assert tools["git"].calls == []
+
+
+def test_git_tool_error_is_recorded(executor_environment, execution_recorder):
+    executor, _, task_id, tools = executor_environment
+    tools["git"].error = RuntimeError("Git command failed")
+
+    result = executor.execute(task_id, "git_status", {})
+
+    assert result.status == ToolExecutionStatus.FAILED
+    assert result.execution_id is not None
+    assert execution_recorder.get_status(result.execution_id) == "FAILED"
+    events = execution_recorder.get_events(result.execution_id)
+    assert [event.event_type for event in events] == [
+        "EXECUTION_STARTED",
+        "EXECUTION_FAILED",
+    ]
+
+
+
+def test_git_parameter_validation_failure_is_recorded(
+    executor_environment,
+    execution_recorder,
+):
+    executor, _, task_id, tools = executor_environment
+
+    result = executor.execute(task_id, "git_log", {"limit": True})
+
+    assert result.status == ToolExecutionStatus.FAILED
+    assert result.execution_id is not None
+    assert tools["git"].calls == []
+    assert execution_recorder.get_status(result.execution_id) == "FAILED"
+    events = execution_recorder.get_events(result.execution_id)
+    assert [event.event_type for event in events] == [
+        "EXECUTION_STARTED",
+        "EXECUTION_FAILED",
+    ]
