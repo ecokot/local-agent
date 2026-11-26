@@ -373,10 +373,17 @@ class GitTool:
                 raise ValueError(f"Absolute paths are not allowed: {path!r}")
             value = path.replace("\\", "/")
             parts = value.split("/")
+            reserved_windows_names = {
+                "CON", "PRN", "AUX", "NUL",
+                *(f"COM{number}" for number in range(1, 10)),
+                *(f"LPT{number}" for number in range(1, 10)),
+            }
             if (
                 value.startswith("/")
                 or any(part in {"", ".", ".."} for part in parts)
                 or value.startswith(":")
+                or any(":" in part or part.endswith((".", " ")) for part in parts)
+                or any(part.split(".", 1)[0].upper() in reserved_windows_names for part in parts)
                 or any(character in value for character in "*?[]")
                 or any(part.casefold() == ".git" for part in parts)
             ):
