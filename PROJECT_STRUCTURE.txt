@@ -1,7 +1,7 @@
 ЭТАП: Ревизия процесса разработки (подготовка к приёмке)
-КОММИТ: da0085d
+КОММИТ: a30d3bc
 ДАТА: 2026-11-26
-ИСТОЧНИК: Git tree (tracked files only)
+ИСТОЧНИК: Git tree (tracked files only; local/secret patterns excluded)
 
 СТРУКТУРА ПРОЕКТА
 local-agent
@@ -88,8 +88,8 @@ local-agent
 |   +--- test_list_directory.py
 |   +--- test_model_client.py
 |   +--- test_model_router.py
-|   +--- test_orchestrator_verification.py
 |   +--- test_orchestrator.py
+|   +--- test_orchestrator_verification.py
 |   +--- test_plan_approval.py
 |   +--- test_plan_models.py
 |   +--- test_read_file.py
@@ -97,8 +97,8 @@ local-agent
 |   +--- test_run_command.py
 |   +--- test_run_tests.py
 |   +--- test_state_manager.py
-|   +--- test_tool_executor_adapter.py
 |   +--- test_tool_executor.py
+|   +--- test_tool_executor_adapter.py
 |   +--- test_user_interface.py
 |   +--- test_verification_executor.py
 |   +--- test_windows_runner.py
@@ -106,10 +106,10 @@ local-agent
 |   \--- test_write_file.py
 +--- .gitignore
 +--- .python-version
-+--- check_model.py
 +--- MODULE_CONTRACTS.md
-+--- plan.MD
 +--- PROJECT_STRUCTURE.txt
-+--- pyproject.toml
 +--- README.md
++--- check_model.py
++--- plan.MD
++--- pyproject.toml
 \--- uv.lock
