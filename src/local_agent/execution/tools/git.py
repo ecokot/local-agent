@@ -37,6 +37,14 @@ class GitRepositoryError(GitToolError):
     """Workspace is not the root of a Git repository."""
 
 
+class GitSnapshotChangedError(GitToolError):
+    """The repository changed during the final pre-command verification."""
+
+    def __init__(self, snapshot: dict):
+        self.snapshot = snapshot
+        super().__init__("Git repository snapshot changed after approval")
+
+
 class GitCommandError(GitToolError):
     """A fixed Git operation failed."""
 
@@ -632,15 +640,17 @@ class GitTool:
         expected_snapshot: dict,
         previous_stage_receipt: dict | None = None,
     ) -> dict:
-        normalized, current = self.prepare_mutation(
+        normalized, current = self.capture_mutation_snapshot(
             operation, parameters, previous_stage_receipt
         )
         if current != expected_snapshot:
             raise GitSnapshotChangedError(current)
+        self._validate_mutation_preconditions(
+            operation, normalized, current, previous_stage_receipt
+        )
 
         if operation == "git_create_and_switch_branch":
             branch_name = normalized["branch_name"]
-            self._ensure_no_hooks()
             self._execute("create_and_switch_branch", ["switch", "-c", branch_name])
             after = self._capture_mutation_snapshot(operation, normalized, None)
             if after["branch"] != branch_name or after["head"] != current["head"] or after["status_entries_hex"]:
@@ -695,7 +705,6 @@ class GitTool:
             }
 
         if operation == "git_commit":
-            self._ensure_no_hooks()
             index_before = self._parse_index_entries(bytes.fromhex(current["index_entries_hex"]))
             old_head = current["head"]
             self._execute(
