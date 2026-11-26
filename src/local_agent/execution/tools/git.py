@@ -238,7 +238,8 @@ class GitTool:
     def _invoke(self, operation: str, args: list[str], *, check: bool = True) -> GitCommandResult:
         try:
             raw = self._runner(
-                self._executable, ("--literal-pathspecs", *args),
+                self._executable,
+                ("--literal-pathspecs", "-c", "core.fsmonitor=false", *args),
                 str(self._workspace.root), self._timeout_seconds, self._max_output_size,
             )
         except (OSError, WindowsRunnerError) as error:
