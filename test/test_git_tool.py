@@ -22,7 +22,10 @@ class FakeRunner:
     def __call__(self, executable, arguments, cwd, timeout, max_output_size):
         self.calls.append((executable, arguments, cwd, timeout))
         command = arguments[3:]
-        if command == ("rev-parse", "--show-toplevel"):
+        if command in {
+            ("rev-parse", "--show-toplevel"),
+            ("rev-parse", "--git-common-dir"),
+        }:
             output = self.root.encode()
         elif "status" in command:
             output = b"# branch.oid abc123\0# branch.head main\0? new file.txt\0"
