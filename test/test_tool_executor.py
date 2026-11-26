@@ -1,5 +1,6 @@
 
 import pytest
+from contextlib import nullcontext
 
 from local_agent.approval_manager import ApprovalManager
 from local_agent.execution.models import ToolExecutionStatus
@@ -34,6 +35,32 @@ class FakeGitTool:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict]] = []
         self.error: Exception | None = None
+        self.snapshot_version = 1
+
+    def mutation_lock(self):
+        return nullcontext()
+
+    def prepare_mutation(self, operation, parameters, previous_stage_receipt=None):
+        return dict(parameters), {"version": self.snapshot_version}
+
+    def capture_mutation_snapshot(self, operation, parameters, previous_stage_receipt=None):
+        return dict(parameters), {"version": self.snapshot_version}
+
+    def _validate_mutation_preconditions(self, *args):
+        return None
+
+    def _execute_approved_mutation(self, operation, parameters, snapshot, previous_stage_receipt=None):
+        result = self._call(operation, **parameters)
+        if operation == "git_stage":
+            result["_stage_receipt"] = {
+                "repository_root": "fake",
+                "head": "fake-head",
+                "index_fingerprint": "fake-index",
+                "staged_diff_fingerprint": "fake-diff",
+                "staged_paths": parameters["paths"],
+                "file_fingerprints": {},
+            }
+        return result
 
     def _call(self, method: str, **parameters: object) -> dict:
         self.calls.append((method, parameters))
@@ -640,6 +667,52 @@ def test_git_actions_reject_unknown_parameters_and_invalid_path_container(
 
     assert result.status == ToolExecutionStatus.FAILED
     assert tools["git"].calls == []
+
+
+
+@pytest.mark.parametrize(
+    ("action", "parameters"),
+    [
+        ("git_create_and_switch_branch", {"branch_name": "feature/test"}),
+        ("git_stage", {"paths": ["file.txt"]}),
+        ("git_commit", {"message": "Test commit", "paths": ["file.txt"]}),
+    ],
+)
+def test_git_mutations_wait_for_approval_before_execution(
+    executor_environment, action, parameters
+):
+    executor, approval_manager, task_id, tools = executor_environment
+    git = tools["git"]
+
+    pending = executor.execute(task_id, action, parameters)
+
+    assert pending.status == ToolExecutionStatus.WAITING_FOR_APPROVAL
+    assert git.calls == []
+
+    approval_manager.approve(pending.approval_id)
+    result = executor.execute(task_id, action, parameters)
+
+    assert result.status == ToolExecutionStatus.SUCCEEDED
+    assert len(git.calls) == 1
+
+
+def test_git_mutation_snapshot_change_requires_new_approval(
+    executor_environment,
+):
+    executor, approval_manager, task_id, tools = executor_environment
+    git = tools["git"]
+    parameters = {"paths": ["file.txt"]}
+
+    pending = executor.execute(task_id, "git_stage", parameters)
+    assert pending.status == ToolExecutionStatus.WAITING_FOR_APPROVAL
+    approval_manager.approve(pending.approval_id)
+
+    git.snapshot_version += 1
+    resumed = executor.execute(task_id, "git_stage", parameters)
+
+    assert resumed.status == ToolExecutionStatus.WAITING_FOR_APPROVAL
+    assert resumed.approval_id != pending.approval_id
+    assert git.calls == []
 
 
 def test_git_tool_error_is_recorded(executor_environment, execution_recorder):
