@@ -1,6 +1,7 @@
 
-import pytest
 from contextlib import nullcontext
+
+import pytest
 
 from local_agent.approval_manager import ApprovalManager
 from local_agent.execution.models import ToolExecutionStatus
