@@ -30,6 +30,7 @@ This skill is project-independent. Do not embed a repository's current status, s
 
 Before editing:
 1. Read the complete task specification, including exclusions and acceptance criteria.
+2. Verify that the task is explicitly user-approved and identify its exact approved version/commit. If approval is absent, ambiguous, or refers to another version, stop and ask the planner.
 2. Read the project's governing plan and the relevant technical contracts.
 3. Confirm the base branch and commit.
 4. Inspect Git status and preserve all pre-existing or user-owned changes.
@@ -81,10 +82,14 @@ When a check fails:
 
 If a check cannot be run because infrastructure, credentials, platform, or permissions are unavailable, record it as **not run**, explain why, and provide an alternative only if it gives meaningful evidence. Never fabricate a pass.
 
-Clearly attribute test execution:
-- checks run by the developer;
-- checks run by the user;
-- checks run by CI or another agent.
+Clearly attribute every check:
+- who ran it (developer, user, CI, or another named actor);
+- where it ran (OS/platform and relevant environment);
+- exact command or scenario;
+- actual result, including counts, skips, failures, and relevant output;
+- whether it was run against the final implementation commit or an earlier state.
+
+The task specification determines who is expected to run each check. Do not assume the developer can access the user's Windows machine, Docker setup, credentials, or other local infrastructure. If the user is assigned a local check, provide the exact command and wait for the user's actual output; do not mark it passed based on an intention or a developer-side substitute.
 
 ### 5. Review your own change
 
@@ -125,10 +130,13 @@ Keep evidence factual. A report is a handoff, not a declaration that the task is
 
 ## Git and user-data safety
 
+- Verify the task's exact approved version and its Git permissions before any repository write.
+- Perform only Git operations explicitly allowed by the task and the project's governing plan. A standing project delegation may authorize routine feature-branch work; it does not authorize reserved or destructive actions.
 - Never discard, overwrite, reset, clean, or silently absorb pre-existing user changes.
 - Do not use broad staging or commit commands when they could include unrelated files; stage the intended paths explicitly.
 - Do not force-push, rewrite shared history, delete branches, merge a PR, or perform destructive Git operations without the required explicit authorization.
-- Do not create a PR before implementation, required tests, and the report are ready.
+- Do not create a PR before implementation, required checks assigned to the developer, and the complete report are ready.
+- When the project workflow requires a PR, include the task and report in the agreed locations and make the PR identify the exact task version, base commit, and evidence. Do not merge the PR; merge belongs to the planner after independent review and the required user decision.
 - If repository state differs from the agreed baseline, stop and clarify rather than improvising a recovery.
 - Follow any project-specific approval, snapshot, or confirmation mechanism exactly.
 
