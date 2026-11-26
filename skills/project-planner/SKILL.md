@@ -69,6 +69,43 @@ Write requirements as observable behavior, not vague aspirations. Acceptance cri
 
 Use the project's task template when one exists. Keep one task focused; split work only when there is a real dependency or independently reviewable boundary. Do not create paperwork that adds no control value.
 
+#### Mandatory task-template compliance
+
+When the active project provides a task template, using it is mandatory, not optional:
+
+1. Locate and read the **complete, current** task template from the exact baseline/repository version on which the task will be based. Do not rely on memory, an older copy, or a task outline used in a previous conversation.
+2. Preserve the template's section headings, numbering, order, required fields, tables, and decision fields. Do not replace the template with a planner-created structure, omit sections, or rename sections for convenience.
+3. Fill every section and field. If an item is genuinely inapplicable, retain it and explicitly write that it is not applicable with a brief reason. Do not leave unexplained placeholders or silently delete template content.
+4. Preserve all template-required identifiers and traceability, including requirement IDs and acceptance-criterion IDs.
+5. Before presenting or handing off the task, compare the completed task against the source template section by section. Confirm that every section and required field is present and populated, and that no template instruction remains unresolved.
+6. If the template is unavailable, incomplete, or conflicts with a governing project decision, do not invent a replacement or claim compliance. Identify the exact issue and resolve it before presenting the task as ready.
+7. State that a task follows the template only after this explicit completeness check. A draft that has not passed the check must be labelled as a draft and must not be handed to the developer.
+
+
+#### Make every developer task unambiguous
+
+Before handing a task to a developer, perform an ambiguity check. The developer should be able to determine from the task alone what is required, what is forbidden, what may be decided independently, what evidence must be returned, and when to stop. Do not rely on conversational implication or expect the developer to infer missing permissions.
+
+For each task, explicitly separate:
+- **Fixed decisions:** user-approved goals, externally visible behavior, public names/contracts, safety properties, constraints, and acceptance conditions that must not be changed by the developer.
+- **Delegated decisions:** implementation details the developer may choose independently, provided the fixed requirements and contracts remain satisfied.
+- **Forbidden work:** adjacent features, unrelated refactoring, new abstractions, destructive actions, and scope expansions that are not part of the task.
+- **Stop-and-ask conditions:** concrete contradictions, missing dependencies, incompatible contracts, unexpected baseline changes, data-loss risks, or any need to alter a fixed decision.
+
+Apply these rules:
+1. Give every requirement one clear meaning. Replace words such as "appropriate", "as needed", "support", "integrate", "secure", or "handle correctly" with observable behavior, explicit boundaries, or a reference to an existing contract.
+2. State exact action names, parameter names, allowed/required/optional status, types, defaults, and rejection behavior whenever these form part of the intended interface. Do not invent these values: inspect source and contracts first. If the choice is not material, delegate it explicitly instead of leaving it ambiguous.
+3. Distinguish a required outcome from a suggested implementation. Mark file lists as expected locations rather than unrestricted permission to edit them. State whether existing components should remain unchanged unless a demonstrated blocker exists.
+4. Define behavior for success, expected errors, invalid input, and relevant boundary cases. Specify which layer validates each constraint when that matters to safety or correctness.
+5. Make every acceptance criterion independently verifiable and traceable to one or more requirement IDs. Avoid criteria that merely repeat "tests pass" without saying what behavior the tests must prove.
+6. State the baseline branch and exact commit. Explain what to do if the developer's working base differs; do not ask the developer to silently adapt the task to a different baseline.
+7. State deliverables and handoff precisely: report path/template, required IDs, changed-file inventory, exact checks, evidence format, and who is expected to run checks. Never let a report imply that a test was run by someone who did not run it.
+8. Separate task approval from repository operations. A task being drafted, reviewed, or approved does not by itself authorize committing to a protected/default branch, pushing, creating a PR, merging, reverting, resetting, or any other consequential Git action. Specify the authorized branch and permitted Git operations. If authorization is absent or ambiguous, prepare the artifact for review and ask before performing the operation.
+9. Never mark a task as user-approved in its own text unless the user explicitly approved that exact version. A planner's decision to finish drafting is not user approval.
+10. Before handoff, read the task as if you were a developer with no access to the planning conversation. If two reasonable interpretations could produce materially different code, tests, file changes, or Git actions, resolve the wording or ask the user one focused question.
+
+Use explicit labels such as **Must**, **May**, **Must not**, and **Stop and ask** where they prevent confusion. Do not over-specify ordinary implementation choices merely to eliminate harmless flexibility; the goal is one clear contract, not micromanagement.
+
 ### 3. Hand off and coordinate
 
 Give the developer the task, relevant project references, and the expected deliverables. Make clear which decisions are fixed and which implementation choices are delegated.

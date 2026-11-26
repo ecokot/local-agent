@@ -100,7 +100,16 @@ Do not claim independent acceptance. The planner or designated reviewer performs
 
 ### 6. Report and hand off
 
-Use the project's report template when available. The report should include:
+When the active project provides a report template, using it is mandatory:
+
+1. Locate and read the **complete, current** report template from the task's project/repository context before writing the report. Do not rely on memory, an older copy, or a report outline from a previous task.
+2. Preserve every section heading, numbering, order, required field, table, and instruction from the template. Do not replace the template with a free-form summary, omit sections, or rename sections for convenience.
+3. Fill every section and field. If an item is genuinely inapplicable, retain it and explicitly mark it as not applicable with a brief reason. If a check was not run or a requirement was not met, retain the corresponding entry and state the status and reason; never remove it.
+4. Preserve every REQ-ID and AC-ID from the task exactly, without merging, renaming, or changing their wording. Provide a separate status and evidence entry for each.
+5. Before handoff, compare the completed report against the source template section by section and confirm that all sections, fields, tables, and task IDs are present and populated.
+6. If the required template cannot be found or contains a conflict that prevents accurate reporting, stop and ask the planner rather than inventing a substitute or claiming template compliance.
+
+The report should also include:
 - task ID and exact task version/reference;
 - concise description of actual changes;
 - response to every requirement and acceptance-criterion ID;
