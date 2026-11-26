@@ -315,12 +315,17 @@ def test_branch_creation_blocks_active_git_hooks(mutation_environment):
     )
 
     assert result.status == ToolExecutionStatus.FAILED
-    assert "Git hooks" in result.error or "Git hooks" in result.error
+    assert "active Git hooks" in result.error
     assert env["git"].branch() == "main"
-    assert _git(
-        env["git_executable"], env["repository"], "show-ref",
-        "--verify", "--quiet", "refs/heads/feature/with-hook",
-    ) == b"" if False else True
+    branch_check = subprocess.run(
+        [
+            env["git_executable"], "-C", str(env["repository"]),
+            "show-ref", "--verify", "--quiet",
+            "refs/heads/feature/with-hook",
+        ],
+        capture_output=True,
+    )
+    assert branch_check.returncode == 1
 
 
 def test_commit_rejects_worktree_change_after_stage(mutation_environment):
