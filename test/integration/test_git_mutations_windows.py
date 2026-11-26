@@ -239,6 +239,30 @@ def test_changed_snapshot_requires_new_approval_without_staging(mutation_environ
     ) == b""
 
 
+
+def test_pending_git_approval_resumes_after_sqlite_restart(
+    mutation_environment, tmp_path
+):
+    env = mutation_environment
+    repository = env["repository"]
+    (repository / "resume.txt").write_text("resume after restart\n", encoding="utf-8")
+    parameters = {"paths": ["resume.txt"]}
+
+    pending = env["executor"].execute(
+        env["task_id"], "git_stage", parameters
+    )
+    assert pending.status == ToolExecutionStatus.WAITING_FOR_APPROVAL
+
+    _reopen_execution_services(env, tmp_path)
+    env["approval"].approve(pending.approval_id)
+    resumed = env["executor"].execute(
+        env["task_id"], "git_stage", parameters
+    )
+
+    assert resumed.status == ToolExecutionStatus.SUCCEEDED
+    assert resumed.result["staged_paths"] == ["resume.txt"]
+
+
 def test_cancelled_stage_never_runs_git_add(mutation_environment):
     env = mutation_environment
     repository = env["repository"]
