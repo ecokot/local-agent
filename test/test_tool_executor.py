@@ -9,6 +9,7 @@ from local_agent.execution.recorder import (
     ExecutionRecorderError,
 )
 from local_agent.execution.tool_executor import ToolExecutor
+from local_agent.execution.tools.git import GitSnapshotChangedError
 from local_agent.state_manager import StateManager
 
 
@@ -36,6 +37,7 @@ class FakeGitTool:
         self.calls: list[tuple[str, dict]] = []
         self.error: Exception | None = None
         self.snapshot_version = 1
+        self.change_during_execute = False
 
     def mutation_lock(self):
         return nullcontext()
@@ -50,6 +52,9 @@ class FakeGitTool:
         return None
 
     def _execute_approved_mutation(self, operation, parameters, snapshot, previous_stage_receipt=None):
+        if self.change_during_execute:
+            self.snapshot_version += 1
+            raise GitSnapshotChangedError({"version": self.snapshot_version})
         result = self._call(operation, **parameters)
         if operation == "git_stage":
             result["_stage_receipt"] = {
@@ -708,6 +713,26 @@ def test_git_mutation_snapshot_change_requires_new_approval(
     approval_manager.approve(pending.approval_id)
 
     git.snapshot_version += 1
+    resumed = executor.execute(task_id, "git_stage", parameters)
+
+    assert resumed.status == ToolExecutionStatus.WAITING_FOR_APPROVAL
+    assert resumed.approval_id != pending.approval_id
+    assert git.calls == []
+
+
+
+def test_git_snapshot_change_immediately_before_command_requests_reapproval(
+    executor_environment,
+):
+    executor, approval_manager, task_id, tools = executor_environment
+    git = tools["git"]
+    parameters = {"paths": ["file.txt"]}
+
+    pending = executor.execute(task_id, "git_stage", parameters)
+    assert pending.status == ToolExecutionStatus.WAITING_FOR_APPROVAL
+    approval_manager.approve(pending.approval_id)
+
+    git.change_during_execute = True
     resumed = executor.execute(task_id, "git_stage", parameters)
 
     assert resumed.status == ToolExecutionStatus.WAITING_FOR_APPROVAL
