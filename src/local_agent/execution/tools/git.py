@@ -511,9 +511,9 @@ class GitTool:
             if not separator:
                 raise GitToolError("Git returned malformed index data")
             parts = metadata.split()
-            if len(parts) != 4:
+            if len(parts) != 3:
                 raise GitToolError("Git returned malformed index metadata")
-            entries[path] = (parts[0], parts[2], parts[3])
+            entries[path] = (parts[0], parts[1], parts[2])
         return entries
 
     @staticmethod
