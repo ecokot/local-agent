@@ -13,7 +13,7 @@ from local_agent.execution.recorder import (
 )
 from local_agent.execution.tools.create_file import CreateFileTool
 from local_agent.execution.tools.get_diff import GetDiffTool
-from local_agent.execution.tools.git import GitTool
+from local_agent.execution.tools.git import GitSnapshotChangedError, GitTool
 from local_agent.execution.tools.list_directory import ListDirectoryTool
 from local_agent.execution.tools.read_file import ReadFileTool
 from local_agent.execution.tools.run_command import RunCommandTool
@@ -485,6 +485,46 @@ class ToolExecutor:
             try:
                 result = git_tool._execute_approved_mutation(
                     tool_name, current_normalized, current_snapshot, current_receipt
+                )
+            except GitSnapshotChangedError as error:
+                try:
+                    self._execution_recorder.fail_execution(
+                        execution_id, str(error)
+                    )
+                except ExecutionRecorderError as recorder_error:
+                    return ToolExecutionResult(
+                        status=ToolExecutionStatus.FAILED,
+                        execution_id=execution_id,
+                        error=(
+                            "Git snapshot changed before the command, and the "
+                            f"stale execution could not be recorded: {recorder_error}"
+                        ),
+                    )
+                refreshed_parameters = {
+                    "operation": tool_name,
+                    "parameters": current_normalized,
+                    "snapshot": error.snapshot,
+                    "previous_stage_receipt": current_receipt,
+                }
+                try:
+                    refreshed = self._approval_manager.request_approval(
+                        task_id=task_id,
+                        action_type=action_type,
+                        parameters=refreshed_parameters,
+                    )
+                except (ValueError, TypeError, RuntimeError, OSError) as approval_error:
+                    return self._failed(
+                        "Git snapshot changed before the command; "
+                        f"new approval could not be requested: {approval_error}"
+                    )
+                if refreshed.status == ApprovalStatus.PENDING:
+                    return ToolExecutionResult(
+                        status=ToolExecutionStatus.WAITING_FOR_APPROVAL,
+                        approval_id=refreshed.approval_id,
+                    )
+                return self._failed(
+                    "Git snapshot changed before the command; retry the action "
+                    "to resume against the newly approved snapshot"
                 )
             except (
                 ValueError, TypeError, OSError, RuntimeError, KeyError,
