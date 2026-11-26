@@ -5,7 +5,7 @@
 > **Проект:** `local-agent`
 > **Репозиторий:** https://github.com/ecokot/local-agent
 > **Основная ветка:** `main`
-> **Коммит проверенной версии кода:** `8065e7817a5e5b92095cb6fe9259b6794612eb4b`
+> **Коммит проверенной версии кода:** `fbedbab8c93bccf637b53f470bdd21b132797ec8`
 > **Актуальность:** 2026-11-27
 > **Среда:** Windows 11, Python 3.12+, `uv`, PowerShell, PyCharm
 >
@@ -1035,13 +1035,13 @@ ExecutionRecorder поддерживает несколько Execution для �
 | test/test_windows_runner.py | Unit-тесты Win32 runner: порядок запуска, Job Object, handle whitelist, reader lifecycle, timeout, ошибки API и cleanup. |
 | test/integration/test_git_tool_windows.py | Windows integration tests GitTool: реальные Git-репозитории, linked worktree, read-only snapshot и проверка отсутствия наследования постороннего handle. |
 | test/integration/test_git_mutations_windows.py | Windows integration tests трёх подтверждаемых Git-операций, changed snapshot, cancellation, SQLite receipt restart, фильтров, hooks, точного stage scope и commit postconditions. |
-| test/integration/test_git_adapter_windows.py | Сквозная Windows-проверка реального GitTool через Orchestrator, ToolExecutorAdapter и ToolExecutor: ожидание approval, отсутствие `git add` до подтверждения, resume без повтора завершённого шага и запись ExecutionRecorder. |
+| test/integration/test_git_adapter_windows.py | Сквозные Windows-проверки реального GitTool через Orchestrator, ToolExecutorAdapter и ToolExecutor: ожидание approval, отсутствие `git add` до подтверждения, resume без повтора завершённого шага, а также реальный subprocess failure, итоговый `FAILED` и запись причины в ExecutionRecorder. |
 | test/test_run_command.py                                | Unit-тесты RunCommandTool: передача команды Backend, преобразование результата, ограничение вывода и обработка ошибок Backend.   |
 | test/test_run_tests.py                                   | Unit-тесты RunTestsTool: фиксированная команда pytest, преобразование результата и обработка ошибок RunCommandTool.              |
 | test/test_execution_backend.py                         | Unit-тесты ExecutionBackend: формирование команды Docker, валидация параметров, обработка ошибок, тайм-аут и очистка контейнера. |
 | test/integration/test_execution_backend_integration.py | Docker integration tests: выполнение команд через ExecutionBackend, stdout/stderr, exit code, Workspace, UID/GID, ограничения контейнера, очистка контейнера, а также сквозная проверка RunCommandTool и RunTestsTool через реальный Docker Backend. |
 
-Сквозная проверка `test/integration/test_git_adapter_windows.py` подтверждает прохождение реального Git-действия по цепочке `Orchestrator → ToolExecutorAdapter → ToolExecutor → GitTool` без Git-специфичной логики в Adapter. Тест проверяет двухфазное approval, фактическое изменение index после подтверждения, отсутствие повторного выполнения завершённого шага и записи ExecutionRecorder. Остальные Git integration tests отдельно подтверждают низкоуровневые preconditions, snapshot changes, path scope и сохранность repository state. ModelClient и ContextManager остаются вне автоматической цепочки Orchestrator. ExecutionRecorder, напротив, вызывается ToolExecutor при каждом фактическом запуске инструмента; это не означает, что Orchestrator управляет журналом напрямую.
+Сквозные проверки `test/integration/test_git_adapter_windows.py` подтверждают прохождение реального Git-действия по цепочке `Orchestrator → ToolExecutorAdapter → ToolExecutor → GitTool` без Git-специфичной логики в Adapter. Тесты проверяют двухфазное approval, фактическое изменение index после подтверждения, отсутствие повторного выполнения завершённого шага, а также обработку ненулевого exit code реального Git subprocess с итоговым `FAILED` и сохранением причины в ExecutionRecorder. Остальные Git integration tests отдельно подтверждают низкоуровневые preconditions, snapshot changes, path scope и сохранность repository state. ModelClient и ContextManager остаются вне автоматической цепочки Orchestrator. ExecutionRecorder, напротив, вызывается ToolExecutor при каждом фактическом запуске инструмента; это не означает, что Orchestrator управляет журналом напрямую.
 
 ## 8. Что пока не реализовано как единая система
 
