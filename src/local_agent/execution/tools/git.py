@@ -842,12 +842,15 @@ class GitTool:
                 "hooks_path_config", configured.exit_code, configured.stderr
             )
 
-        if configured_path:
-            hooks_path = Path(configured_path)
-            if not hooks_path.is_absolute():
-                hooks_path = self._workspace.root / hooks_path
-        else:
-            hooks_path = self._git_path("hooks")
+        # Let Git resolve path-valued config (including ~/ and %(prefix)/),
+        # relative paths, worktrees, and platform-specific path rules.
+        hooks_value = self._snapshot_command(
+            "effective_hooks_path", ["rev-parse", "--git-path", "hooks"]
+        )
+        hooks_path = Path(os.fsdecode(hooks_value).strip())
+        if not hooks_path.is_absolute():
+            hooks_path = self._workspace.root / hooks_path
+        effective_path = os.path.normcase(os.path.abspath(hooks_path))
 
         files = {}
         if hooks_path.exists():
@@ -876,5 +879,6 @@ class GitTool:
 
         return {
             "configured_path": configured_path,
+            "effective_path": effective_path,
             "files": files,
         }
