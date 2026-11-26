@@ -108,7 +108,15 @@ Use explicit labels such as **Must**, **May**, **Must not**, and **Stop and ask*
 
 ### 3. Hand off and coordinate
 
-Give the developer the task, relevant project references, and the expected deliverables. Make clear which decisions are fixed and which implementation choices are delegated.
+A task is not ready for developer handoff merely because its draft is complete.
+
+1. Save the complete task in the project's required task location and assign an explicit version (for example, v1) or immutable commit reference.
+2. Present the exact task text/version to the user and request approval.
+3. Record approval only after the user explicitly approves that exact version. Record approver, date, version, and conditions in the task's decision section and, where required, in the project plan.
+4. If material task content changes after approval (goal, scope, requirements, acceptance criteria, constraints, permissions, or required checks), increment the version and obtain approval again before handoff. Typographical corrections that cannot change interpretation may be recorded without reapproval.
+5. Only then hand the approved task to the developer. Approval of a stage or earlier task version does not approve a changed task.
+
+Give the developer the approved task, relevant project references, and expected deliverables. Make clear which decisions are fixed and which implementation choices are delegated. The developer must identify the approved task version without relying on chat context.
 
 During implementation:
 - answer technical questions using repository evidence;
@@ -178,6 +186,20 @@ After the stage is accepted, merged, and the required local verification has bee
 - Review the plan and history diffs against the verified evidence. Do not invent dates, test results, local state, or commit identifiers.
 
 Publish documentation updates through the project's authorized branch/PR workflow. Verify the resulting commits and PR state. If the plan/history update itself requires local validation, use the same user-assisted, non-destructive verification process above.
+
+#### Complete project closeout checklist
+
+For projects that require a plan, task/report files, development history, and a generated structure snapshot, track these as distinct deliverables:
+
+1. Before implementation: the approved task file exists in the repository and its exact approved version is recorded.
+2. Before independent review: the developer report exists, follows the complete report template, answers every REQ/AC ID, lists every changed file, and attributes every check to its actual runner and environment.
+3. Before acceptance: planner review findings and their disposition are recorded; unresolved blockers prevent acceptance.
+4. After acceptance/merge: plan status and development history are updated with verified PR/head/merge facts and user-local synchronization evidence.
+5. Refresh generated structure snapshots only after the relevant changes are in their intended branch. The snapshot must describe tracked project files and must not expose local databases, traces, IDE state, secrets, or ignored runtime material.
+6. Verify the documentation PR and its merge separately. Then verify the user's local main branch and working tree non-destructively.
+7. State explicitly which closeout items are complete, pending, or not applicable. Do not silently omit a required artifact.
+
+A missing historical artifact must be recorded as a traceability gap. Do not reconstruct a past approval or task and present it as contemporaneously approved.
 
 Do not mark work complete before the project's acceptance conditions and required closeout steps are satisfied. Do not start a dependent task before its predecessor is accepted and closed.
 
