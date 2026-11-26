@@ -591,6 +591,7 @@ class GitTool:
             raise GitToolError("A successful approved git_stage action is required first")
         expected = {
             "repository_root": snapshot["repository_root"],
+            "common_git_dir": snapshot["common_git_dir"],
             "head": snapshot["head"],
             "branch": snapshot["branch"],
             "index_fingerprint": snapshot["index_fingerprint"],
@@ -744,6 +745,7 @@ class GitTool:
             }
             receipt = {
                 "repository_root": after["repository_root"],
+                "common_git_dir": after["common_git_dir"],
                 "head": after["head"],
                 "branch": after["branch"],
                 "index_fingerprint": after["index_fingerprint"],
