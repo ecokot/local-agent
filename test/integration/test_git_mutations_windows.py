@@ -730,4 +730,3 @@ def test_commit_blocks_active_git_hooks_before_approval(mutation_environment):
     ) == b"hook-protected.txt\n"
     assert hook.exists()
     assert not (repository / "hook-ran.txt").exists()
-
