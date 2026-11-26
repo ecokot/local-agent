@@ -1,20 +1,16 @@
-﻿ЭТАП: Этап 9.Б
-КОММИТ: 0ee3b12
-ДАТА: 2026-11-25 15:58:08
+ЭТАП: Ревизия процесса разработки (подготовка к приёмке)
+КОММИТ: 811241d
+ДАТА: 2026-11-26
+ИСТОЧНИК: Git tree (tracked files only)
 
 СТРУКТУРА ПРОЕКТА
 local-agent
-+--- .gigaide
-|   \--- gigaide.properties
-+--- data
-|   +--- traces
-|   |   \--- f77ae6fd-9826-4a9d-a2cc-7db6cc8c1468.jsonl
-|   \--- agent.db
 +--- docs
 |   +--- stage-09
 |   |   +--- report
 |   |   |   +--- LA-9A-01.md
-|   |   |   \--- LA-9B-01.md
+|   |   |   +--- LA-9B-01.md
+|   |   |   \--- LA-9C-01.md
 |   |   \--- task
 |   |       +--- LA-9A-01.md
 |   |       +--- LA-9B-01.md
@@ -92,8 +88,8 @@ local-agent
 |   +--- test_list_directory.py
 |   +--- test_model_client.py
 |   +--- test_model_router.py
-|   +--- test_orchestrator.py
 |   +--- test_orchestrator_verification.py
+|   +--- test_orchestrator.py
 |   +--- test_plan_approval.py
 |   +--- test_plan_models.py
 |   +--- test_read_file.py
@@ -101,8 +97,8 @@ local-agent
 |   +--- test_run_command.py
 |   +--- test_run_tests.py
 |   +--- test_state_manager.py
-|   +--- test_tool_executor.py
 |   +--- test_tool_executor_adapter.py
+|   +--- test_tool_executor.py
 |   +--- test_user_interface.py
 |   +--- test_verification_executor.py
 |   +--- test_windows_runner.py
