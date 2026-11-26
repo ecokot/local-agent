@@ -12,13 +12,13 @@ from local_agent.execution.recorder import ExecutionRecorder
 from local_agent.execution.tool_executor import ToolExecutor
 from local_agent.execution.tools._windows_runner import run_windows
 from local_agent.execution.tools.git import GitTool
-from local_agent.execution.workspace import Workspace
 from local_agent.execution.verification import (
     CriterionVerificationResult,
     VerificationDetails,
     VerificationReport,
     VerificationStatus,
 )
+from local_agent.execution.workspace import Workspace
 from local_agent.models.agent import ReviewResult
 from local_agent.models.plan import Plan
 from local_agent.orchestrator import Orchestrator
