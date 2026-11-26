@@ -85,7 +85,7 @@ def mutation_environment(tmp_path, monkeypatch):
         git_tool=git_tool,
         execution_recorder=recorder,
     )
-    yield {
+    environment = {
         "approval": approval_manager,
         "executor": executor,
         "git": git_tool,
@@ -95,8 +95,9 @@ def mutation_environment(tmp_path, monkeypatch):
         "state": state_manager,
         "task_id": task_id,
     }
-    recorder.close()
-    state_manager.close()
+    yield environment
+    environment["recorder"].close()
+    environment["state"].close()
 
 
 
