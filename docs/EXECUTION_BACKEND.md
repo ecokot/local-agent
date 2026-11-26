@@ -153,4 +153,14 @@ Docker-изоляция снижает риск воздействия выпо�
 
 Проверки фактической конфигурации Docker, доступа к файлам хоста, сетевой изоляции, capabilities и других ограничений зафиксированы в `docs/EXECUTION_ISOLATION_RESEARCH.md`.
 
-Интеграция Backend с `RunCommandTool` и `RunTestsTool` выполняется отдельно и не входит в текущую реализацию самостоятельного Backend.
+`RunCommandTool` и `RunTestsTool` используют Backend через описанную цепочку. Реальная Docker-интеграция инструментов проверяется тестами в `test/integration/test_execution_backend_integration.py`.
+
+
+## Подготовка Docker-образа
+
+Для создания или пересборки образа `local-agent-python-test:3.12`
+используйте нормативную инструкцию
+[`docs/EXECUTION_BACKEND_IMAGE.md`](EXECUTION_BACKEND_IMAGE.md).
+Она учитывает запуск контейнера от UID/GID `10000:10000` и задаёт
+`UV_CACHE_DIR=/tmp/uv-cache`, необходимый для команды
+`uv run pytest -v` в этом окружении.

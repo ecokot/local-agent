@@ -203,24 +203,24 @@ Set-Content -LiteralPath (Join-Path $testRoot "host-secret.txt") `
 
 ### 5.2. Dockerfile
 
-Создать файл `$testRoot\Dockerfile` со следующим содержимым:
+**Устаревшая инструкция:** приведённый в первоначальной версии исследования
+Dockerfile не задавал `UV_CACHE_DIR` и не обеспечивает корректный запуск
+`uv run pytest -v` при использовании Backend с UID/GID `10000:10000`.
+
+Нормативная инструкция сборки образа, включая актуальный Dockerfile,
+проверку UID/GID и запуск интеграционного теста, перенесена в
+[`docs/EXECUTION_BACKEND_IMAGE.md`](EXECUTION_BACKEND_IMAGE.md).
+Именно этот документ следует использовать при подготовке или пересборке
+`local-agent-python-test:3.12`.
+
+В Dockerfile обязательно задаётся:
 
 ```dockerfile
-FROM python:3.12-slim
-
-RUN python -m pip install --no-cache-dir uv
-
-WORKDIR /opt/local-agent-env
-
-COPY pyproject.toml uv.lock ./
-
-RUN uv sync --frozen --group dev --no-install-project
-
-ENV PATH="/opt/local-agent-env/.venv/bin:$PATH"
-ENV PYTHONPATH="/workspace/src"
-
-WORKDIR /workspace
+ENV UV_CACHE_DIR=/tmp/uv-cache
 ```
+
+Эта настройка предотвращает попытку uv создать кэш в недоступном для
+непривилегированного пользователя каталоге `/.cache/uv`.
 
 Назначение Dockerfile:
 
@@ -234,32 +234,12 @@ WORKDIR /workspace
 
 ### 5.3. Сборка тестового образа
 
-Выполнить из корня репозитория:
+Первоначальная команда сборки сохранена в историческом контексте
+исследования, но актуальную последовательность подготовки образа,
+включая Dockerfile с настройкой кэша uv и проверку интеграции, следует
+выполнять только по нормативному документу
+[`docs/EXECUTION_BACKEND_IMAGE.md`](EXECUTION_BACKEND_IMAGE.md).
 
-```powershell
-docker build `
-    -f "$testRoot\Dockerfile" `
-    -t local-agent-python-test:3.12 `
-    $repoRoot
-```
-
-На этапе сборки требуется доступ к сети для загрузки базового образа и зависимостей.
-
-Сборка образа и выполнение контейнера — разные операции. В дальнейшем контейнеры выполнения должны запускаться с отключённой сетью.
-
-Проверить Python:
-
-```powershell
-docker run --rm --network none `
-    local-agent-python-test:3.12 `
-    python --version
-```
-
-Ожидаемый результат: Python версии 3.12.
-
-**Зафиксированный результат рабочего компьютера:** Python 3.12.16.
-
-Примечание: тег `python:3.12-slim` не фиксирует конкретный patch-релиз и digest образа. Для строгой воспроизводимости в дальнейшем следует рассмотреть фиксацию digest базового образа.
 
 ## 6. Проверки изоляции
 
