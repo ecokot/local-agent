@@ -1,4 +1,4 @@
-"""Read-only Git access scoped to a Workspace."""
+"""Git access scoped to a Workspace with fixed read-only and approved mutations."""
 from __future__ import annotations
 
 import hashlib
@@ -35,14 +35,6 @@ class GitNotFoundError(GitToolError):
 
 class GitRepositoryError(GitToolError):
     """Workspace is not the root of a Git repository."""
-
-
-class GitSnapshotChangedError(GitToolError):
-    """The repository changed after the user approved its snapshot."""
-
-    def __init__(self, snapshot: dict):
-        self.snapshot = snapshot
-        super().__init__("Git repository snapshot changed after approval")
 
 
 class GitCommandError(GitToolError):
@@ -97,7 +89,7 @@ _REPOSITORY_LOCKS_GUARD = threading.Lock()
 
 
 class GitTool:
-    """Provides a fixed allowlist of read-only Git operations."""
+    """Provides fixed Git operations scoped to one workspace repository."""
 
     def __init__(
         self,
