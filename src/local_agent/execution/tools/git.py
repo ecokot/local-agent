@@ -376,7 +376,7 @@ class GitTool:
     ) -> dict:
         status = self._snapshot_command(
             "mutation_snapshot_status",
-            ["-c", "core.fsmonitor=false", "--no-optional-locks", "status", "--porcelain=v2", "-z", "--branch", "--untracked-files=all"],
+            ["--no-optional-locks", "status", "--porcelain=v2", "-z", "--branch", "--untracked-files=all"],
         )
         branch = head = None
         status_entries = []
