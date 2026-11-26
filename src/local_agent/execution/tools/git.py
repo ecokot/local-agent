@@ -634,7 +634,7 @@ class GitTool:
 
     @staticmethod
     def _validate_no_external_filters(snapshot: dict) -> None:
-        fields = bytes.fromhex(snapshot["filter_attributes_hex"]).split(b"\\x00")
+        fields = bytes.fromhex(snapshot["filter_attributes_hex"]).split(b"\x00")
         for index in range(0, len(fields) - 2, 3):
             attribute = fields[index + 1]
             value = fields[index + 2]
