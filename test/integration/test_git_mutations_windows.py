@@ -336,6 +336,10 @@ def test_cancelled_stage_never_runs_git_add(mutation_environment):
         ":!secret.txt",
         "*.txt",
         "file?.txt",
+        "file.txt:stream",
+        "NUL.txt",
+        "trailing.",
+        "trailing ",
         "duplicate/../file.txt",
     ],
 )
