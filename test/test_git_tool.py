@@ -21,9 +21,10 @@ class FakeRunner:
 
     def __call__(self, executable, arguments, cwd, timeout, max_output_size):
         self.calls.append((executable, arguments, cwd, timeout))
-        if arguments[1:] == ("rev-parse", "--show-toplevel"):
+        command = arguments[3:]
+        if command == ("rev-parse", "--show-toplevel"):
             output = self.root.encode()
-        elif arguments[1] == "status":
+        elif command[0] == "status":
             output = b"# branch.oid abc123\0# branch.head main\0? new file.txt\0"
         elif arguments[1:] == ("branch", "--show-current"):
             output = b"main\n"
@@ -52,7 +53,10 @@ def tool(tmp_path, monkeypatch):
 def test_checks_workspace_root_and_runs_git_from_workspace(tool, tmp_path):
     _, runner = tool
     assert runner.calls[0][2] == str(tmp_path.resolve())
-    assert runner.calls[0][1] == ("--literal-pathspecs", "rev-parse", "--show-toplevel")
+    assert runner.calls[0][1] == (
+        "--literal-pathspecs", "-c", "core.fsmonitor=false",
+        "rev-parse", "--show-toplevel",
+    )
 
 
 def test_read_only_operations(tool):
@@ -88,7 +92,7 @@ def test_nonzero_exit_is_an_error(tmp_path, monkeypatch):
     monkeypatch.setattr("local_agent.execution.tools.git.shutil.which", lambda _: "git")
 
     def runner(executable, arguments, cwd, timeout, max_output_size):
-        if arguments[1:] == ("rev-parse", "--show-toplevel"):
+        if arguments[3:] == ("rev-parse", "--show-toplevel"):
             return ProcessResult(str(tmp_path).encode(), b"", 0, False, False, False)
         return ProcessResult(b"", b"bad revision", 128, False, False, False)
 
