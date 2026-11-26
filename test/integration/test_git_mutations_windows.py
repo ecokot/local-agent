@@ -344,6 +344,43 @@ def test_stage_rejects_unsafe_path_forms(mutation_environment, path):
     ) == b""
 
 
+
+@pytest.mark.parametrize(
+    "paths",
+    [
+        [],
+        ["same.txt", "same.txt"],
+        ["nul\x00path.txt"],
+        ["C:/absolute.txt"],
+    ],
+)
+def test_stage_rejects_empty_duplicate_nul_and_absolute_path_lists(
+    mutation_environment, paths
+):
+    env = mutation_environment
+    result = env["executor"].execute(
+        env["task_id"], "git_stage", {"paths": paths}
+    )
+    assert result.status == ToolExecutionStatus.FAILED
+    assert _git(
+        env["git_executable"], env["repository"],
+        "diff", "--cached", "--name-only",
+    ) == b""
+
+
+def test_stage_accepts_leading_dash_as_a_literal_filename(mutation_environment):
+    env = mutation_environment
+    filename = "-literal file-雪.txt"
+    (env["repository"] / filename).write_text("literal\n", encoding="utf-8")
+
+    result = _approve_and_resume(
+        env, "git_stage", {"paths": [filename]}
+    )
+
+    assert result.status == ToolExecutionStatus.SUCCEEDED
+    assert result.result["staged_paths"] == [filename]
+
+
 def test_stage_can_extend_only_its_previous_approved_index(mutation_environment):
     env = mutation_environment
     repository = env["repository"]
