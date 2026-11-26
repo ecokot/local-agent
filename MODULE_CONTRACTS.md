@@ -445,7 +445,7 @@ Read-only Git-действия отображаются на методы пер
 - Git запускается без shell; executable определяется через `shutil.which`.
 - Аргументы формируются внутри GitTool; произвольная команда и произвольный shell-вызов не предоставляются.
 - Перед каждой подкомандой передаётся `--literal-pathspecs`; пути отделяются через `--` и проверяются через `Workspace.resolve_path()`. Для snapshot status используется `--no-optional-locks`, `core.fsmonitor=false` применяется ко всем вызовам, чтобы не запускать внешний fsmonitor и не обновлять index до approval.
-- Snapshot включает canonical root, branch/HEAD, NUL-safe porcelain v2, index file и staged tree fingerprints, staged/unstaged diff fingerprints, tracked/untracked/conflict entries, выбранные file fingerprints и состояние Git hooks.
+- Snapshot включает canonical workspace root и common Git directory, branch/HEAD, NUL-safe porcelain v2, index file и staged tree fingerprints, staged/unstaged diff fingerprints, tracked/untracked/conflict entries, fingerprints выбранных и наблюдаемых dirty-файлов, filter attributes и состояние Git hooks. Переопределение `GIT_INDEX_FILE` отклоняется.
 - Пути для `git_stage`/`git_commit` — непустой уникальный список относительных файлов; абсолютные пути, traversal, NUL, wildcard и pathspec magic отклоняются.
 - `git_create_and_switch_branch` допускается только при существующем HEAD, attached branch и полностью чистом состоянии; команда — `git switch -c`.
 - `git_stage` допускается только с чистым исходным index или с index, совпадающим с receipt предыдущего успешного одобренного stage; команда — `git add -- <explicit paths>`. Внешние clean filters блокируются. Postcondition проверяет, что изменились только разрешённые index entries и файлы не изменились.
