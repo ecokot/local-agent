@@ -359,7 +359,10 @@ class ToolExecutor:
             for event in reversed(self._execution_recorder.get_events(execution.execution_id)):
                 if event.event_type != "EXECUTION_FINISHED":
                     continue
-                if event.data.get("tool_name") != "git_stage":
+                tool_name = event.data.get("tool_name")
+                if tool_name == "git_commit":
+                    return None
+                if tool_name != "git_stage":
                     continue
                 result = event.data.get("result")
                 if isinstance(result, dict):
