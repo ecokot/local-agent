@@ -564,6 +564,12 @@ class GitTool:
     ) -> None:
         if snapshot["head"] is None:
             raise GitToolError("Git mutation requires an existing HEAD commit")
+        if operation in {"git_create_and_switch_branch", "git_commit"}:
+            hook_state = snapshot["hook_state"]
+            if hook_state["configured_path"] or hook_state["files"]:
+                raise GitToolError(
+                    "This Git mutation is blocked while active Git hooks are configured"
+                )
         if operation == "git_create_and_switch_branch":
             if snapshot["branch"] is None:
                 raise GitToolError("Cannot create a branch while HEAD is detached")
