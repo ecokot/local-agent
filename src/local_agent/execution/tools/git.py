@@ -484,6 +484,15 @@ class GitTool:
         selected_files = {
             path: self._file_fingerprint(path) for path in sorted(selected)
         }
+        observed_paths = (
+            selected
+            | set(staged_paths)
+            | set(unstaged_paths)
+            | set(untracked_paths)
+        )
+        observed_files = {
+            path: self._file_fingerprint(path) for path in sorted(observed_paths)
+        }
         filter_attributes = self._snapshot_command(
             "mutation_snapshot_filter_attributes",
             ["check-attr", "-z", "filter", "--", *sorted(selected)],
@@ -510,6 +519,7 @@ class GitTool:
             "untracked_paths": untracked_paths,
             "conflicts_hex": conflicts.hex(),
             "selected_files": selected_files,
+            "observed_files": observed_files,
             "filter_attributes_hex": filter_attributes.hex(),
             "previous_stage_receipt": previous_stage_receipt,
             "hook_state": self._hook_snapshot(),
@@ -737,7 +747,8 @@ class GitTool:
             if (
                 after["head"] != current["head"]
                 or after["branch"] != current["branch"]
-                or any(after["selected_files"].get(path) != current["selected_files"].get(path) for path in after["selected_files"])
+                or after["selected_files"] != current["selected_files"]
+                or after["observed_files"] != current["observed_files"]
                 or set(after["staged_paths"]) - (before_staged | selected)
                 or (set(after["unstaged_paths"]) - selected) != (before_unstaged - selected)
                 or (set(after["untracked_paths"]) - selected) != (before_untracked - selected)
