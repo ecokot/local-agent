@@ -203,24 +203,24 @@ Set-Content -LiteralPath (Join-Path $testRoot "host-secret.txt") `
 
 ### 5.2. Dockerfile
 
-Создать файл `$testRoot\Dockerfile` со следующим содержимым:
+**Устаревшая инструкция:** приведённый в первоначальной версии исследования
+Dockerfile не задавал `UV_CACHE_DIR` и не обеспечивает корректный запуск
+`uv run pytest -v` при использовании Backend с UID/GID `10000:10000`.
+
+Нормативная инструкция сборки образа, включая актуальный Dockerfile,
+проверку UID/GID и запуск интеграционного теста, перенесена в
+[`docs/EXECUTION_BACKEND_IMAGE.md`](EXECUTION_BACKEND_IMAGE.md).
+Именно этот документ следует использовать при подготовке или пересборке
+`local-agent-python-test:3.12`.
+
+В Dockerfile обязательно задаётся:
 
 ```dockerfile
-FROM python:3.12-slim
-
-RUN python -m pip install --no-cache-dir uv
-
-WORKDIR /opt/local-agent-env
-
-COPY pyproject.toml uv.lock ./
-
-RUN uv sync --frozen --group dev --no-install-project
-
-ENV PATH="/opt/local-agent-env/.venv/bin:$PATH"
-ENV PYTHONPATH="/workspace/src"
-
-WORKDIR /workspace
+ENV UV_CACHE_DIR=/tmp/uv-cache
 ```
+
+Эта настройка предотвращает попытку uv создать кэш в недоступном для
+непривилегированного пользователя каталоге `/.cache/uv`.
 
 Назначение Dockerfile:
 
