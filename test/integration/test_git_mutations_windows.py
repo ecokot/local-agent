@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import os
 import shutil
-from dataclasses import replace
 import subprocess
 import threading
+from dataclasses import replace
 
 import pytest
 
@@ -12,7 +12,6 @@ from local_agent.approval_manager import ApprovalManager
 from local_agent.execution.models import ToolExecutionStatus
 from local_agent.execution.recorder import ExecutionRecorder
 from local_agent.execution.tool_executor import ToolExecutor
-from local_agent.execution.tools._windows_runner import ProcessResult
 from local_agent.execution.tools.git import GitTool
 from local_agent.execution.workspace import Workspace
 from local_agent.state_manager import StateManager
