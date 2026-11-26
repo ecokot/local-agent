@@ -66,6 +66,18 @@ class FakeTool:
         return {"tool": self.name, "parameters": parameters}
 
 
+
+class FakeGitTool:
+    def __init__(self):
+        self.calls = []
+
+    def __getattr__(self, method):
+        def call(*args, **kwargs):
+            self.calls.append((method, args, kwargs))
+            return {"method": method, "args": args, "parameters": kwargs}
+        return call
+
+
 def build_environment(tmp_path):
     database = tmp_path / "agent.db"
     state = StateManager(database)
@@ -86,10 +98,12 @@ def build_environment(tmp_path):
             "run_tests",
         )
     }
+    tools["git"] = FakeGitTool()
     tool_executor = ToolExecutor(
         approval_manager=approvals,
         execution_recorder=recorder,
-        **tools,
+        **{name: tool for name, tool in tools.items() if name != "git"},
+        git_tool=tools["git"],
     )
     adapter = ToolExecutorAdapter(tool_executor)
     task_id = state.create_task("Execute approved plan")
@@ -628,3 +642,40 @@ def test_changed_step_invalidates_reuse_of_later_dependent_results():
     assert "task-1" in adapter._progress
     adapter.clear_progress("task-1")
     assert "task-1" not in adapter._progress
+
+
+
+def test_adapter_executes_read_only_git_action_through_tool_executor(tmp_path):
+    environment = build_environment(tmp_path)
+    _, _, recorder, tools, adapter, task_id = environment
+
+    try:
+        plan = Plan(
+            summary="Read Git status",
+            verification_criteria=[
+                {
+                    "id": "tests",
+                    "type": "pytest",
+                    "description": "Run the project test suite",
+                    "parameters": {},
+                }
+            ],
+            steps=[
+                {
+                    "description": "Read repository status",
+                    "action": "git_status",
+                    "parameters": {},
+                }
+            ],
+        )
+
+        result = adapter.execute(task_id, plan)
+
+        assert result.success is True
+        assert result.step_results[0]["result"]["method"] == "status"
+        assert tools["git"].calls == [("status", (), {})]
+        executions = recorder.get_executions_for_task(task_id)
+        assert len(executions) == 1
+        assert recorder.get_status(executions[0].execution_id) == "SUCCEEDED"
+    finally:
+        close_environment(environment)
