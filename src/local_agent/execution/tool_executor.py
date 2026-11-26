@@ -50,6 +50,7 @@ class ToolExecutor:
     ) -> None:
         self._approval_manager = approval_manager
         self._execution_recorder = execution_recorder
+        self._git_tool = git_tool
         self._tools = {
             "list_directory": _ToolDefinition(
                 action_type="LIST_DIRECTORY",
@@ -167,6 +168,27 @@ class ToolExecutor:
                 required_parameters=frozenset(),
                 optional_parameters=frozenset(),
             ),
+            "git_create_and_switch_branch": _ToolDefinition(
+                action_type="GIT_CREATE_AND_SWITCH_BRANCH",
+                requires_approval=True,
+                execute=lambda **parameters: None,
+                required_parameters=frozenset({"branch_name"}),
+                optional_parameters=frozenset(),
+            ),
+            "git_stage": _ToolDefinition(
+                action_type="GIT_STAGE",
+                requires_approval=True,
+                execute=lambda **parameters: None,
+                required_parameters=frozenset({"paths"}),
+                optional_parameters=frozenset(),
+            ),
+            "git_commit": _ToolDefinition(
+                action_type="GIT_COMMIT",
+                requires_approval=True,
+                execute=lambda **parameters: None,
+                required_parameters=frozenset({"message", "paths"}),
+                optional_parameters=frozenset(),
+            ),
         }
 
     def execute(
@@ -198,6 +220,11 @@ class ToolExecutor:
                     validation_error,
                 )
             return self._failed(validation_error)
+
+        if tool_name in {
+            "git_create_and_switch_branch", "git_stage", "git_commit"
+        }:
+            return self._execute_git_mutation(task_id, tool_name, parameters)
 
         validation_error = self._validate_git_parameters(
             tool_name,
@@ -322,6 +349,163 @@ class ToolExecutor:
             execution_id=execution_id,
             result=result,
         )
+
+
+    def _latest_git_stage_receipt(self, task_id: str) -> dict | None:
+        executions = self._execution_recorder.get_executions_for_task(task_id)
+        for execution in reversed(executions):
+            if execution.status.value != "SUCCEEDED":
+                continue
+            for event in reversed(self._execution_recorder.get_events(execution.execution_id)):
+                if event.event_type != "EXECUTION_FINISHED":
+                    continue
+                if event.data.get("tool_name") != "git_stage":
+                    continue
+                result = event.data.get("result")
+                if isinstance(result, dict):
+                    receipt = result.get("_stage_receipt")
+                    if isinstance(receipt, dict):
+                        return receipt
+        return None
+
+    def _execute_git_mutation(
+        self, task_id: str, tool_name: str, parameters: dict[str, Any]
+    ) -> ToolExecutionResult:
+        receipt = self._latest_git_stage_receipt(task_id) if tool_name in {
+            "git_stage", "git_commit"
+        } else None
+        try:
+            normalized, snapshot = self._tools[tool_name].execute.__self__.prepare_mutation(
+                tool_name, parameters, receipt
+            )
+        except (ValueError, TypeError, RuntimeError, OSError) as error:
+            return self._record_validation_failure(task_id, str(error))
+
+        approval_parameters = {
+            "operation": tool_name,
+            "parameters": normalized,
+            "snapshot": snapshot,
+            "previous_stage_receipt": receipt,
+        }
+        action_type = self._tools[tool_name].action_type
+        try:
+            approval = self._approval_manager.request_approval(
+                task_id=task_id,
+                action_type=action_type,
+                parameters=approval_parameters,
+            )
+        except (ValueError, TypeError, RuntimeError, OSError) as error:
+            return self._failed(
+                f"Approval request failed. The Git operation was not executed: {error}"
+            )
+
+        if approval.status == ApprovalStatus.PENDING:
+            return ToolExecutionResult(
+                status=ToolExecutionStatus.WAITING_FOR_APPROVAL,
+                approval_id=approval.approval_id,
+            )
+        if approval.status != ApprovalStatus.APPROVED:
+            return self._failed(f"Git action is not approved: {approval.status}")
+
+        git_tool = self._git_tool
+        with git_tool.mutation_lock():
+            current_receipt = self._latest_git_stage_receipt(task_id) if tool_name in {
+                "git_stage", "git_commit"
+            } else None
+            try:
+                current_normalized, current_snapshot = git_tool.prepare_mutation(
+                    tool_name, parameters, current_receipt
+                )
+            except (ValueError, TypeError, RuntimeError, OSError) as error:
+                return self._record_validation_failure(task_id, str(error))
+
+            current_approval_parameters = {
+                "operation": tool_name,
+                "parameters": current_normalized,
+                "snapshot": current_snapshot,
+                "previous_stage_receipt": current_receipt,
+            }
+            if current_approval_parameters != approval_parameters:
+                try:
+                    refreshed = self._approval_manager.request_approval(
+                        task_id=task_id,
+                        action_type=action_type,
+                        parameters=current_approval_parameters,
+                    )
+                except (ValueError, TypeError, RuntimeError, OSError) as error:
+                    return self._failed(
+                        f"Updated Git approval request failed; operation was not executed: {error}"
+                    )
+                if refreshed.status == ApprovalStatus.PENDING:
+                    return ToolExecutionResult(
+                        status=ToolExecutionStatus.WAITING_FOR_APPROVAL,
+                        approval_id=refreshed.approval_id,
+                    )
+                return self._failed(
+                    "Git repository changed after approval; the original operation was not executed"
+                )
+
+            try:
+                if not self._approval_manager.is_approved(
+                    task_id=task_id,
+                    action_type=action_type,
+                    parameters=current_approval_parameters,
+                ):
+                    return self._failed(
+                        "Git approval verification failed. The operation was not executed."
+                    )
+            except (ValueError, TypeError, RuntimeError, OSError) as error:
+                return self._failed(
+                    f"Git approval verification failed. The operation was not executed: {error}"
+                )
+
+            try:
+                execution_id = self._execution_recorder.start_execution(task_id)
+            except ExecutionRecorderError as error:
+                return self._failed(
+                    f"Could not start execution record. The Git operation was not executed: {error}"
+                )
+
+            try:
+                result = git_tool._execute_approved_mutation(
+                    tool_name, current_normalized, current_snapshot, current_receipt
+                )
+            except (
+                ValueError, TypeError, OSError, RuntimeError, KeyError,
+                AttributeError, LookupError, ArithmeticError,
+            ) as error:
+                try:
+                    self._execution_recorder.fail_execution(execution_id, str(error))
+                except ExecutionRecorderError as recorder_error:
+                    return ToolExecutionResult(
+                        status=ToolExecutionStatus.FAILED,
+                        execution_id=execution_id,
+                        error=f"Git operation failed: {error}. Failure recording also failed: {recorder_error}",
+                    )
+                return ToolExecutionResult(
+                    status=ToolExecutionStatus.FAILED,
+                    execution_id=execution_id,
+                    error=str(error),
+                )
+
+            try:
+                self._execution_recorder.finish_execution(
+                    execution_id,
+                    {"tool_name": tool_name, "result": result},
+                )
+            except ExecutionRecorderError as error:
+                return ToolExecutionResult(
+                    status=ToolExecutionStatus.FAILED,
+                    execution_id=execution_id,
+                    result={key: value for key, value in result.items() if not key.startswith("_")},
+                    error=f"Git operation succeeded, but its completion could not be recorded: {error}",
+                )
+
+            return ToolExecutionResult(
+                status=ToolExecutionStatus.SUCCEEDED,
+                execution_id=execution_id,
+                result={key: value for key, value in result.items() if not key.startswith("_")},
+            )
 
     @staticmethod
     def _validate_parameters(
