@@ -700,6 +700,63 @@ def test_commit_postcondition_failure_keeps_executed_commits_for_inspection(
     ) == b""
 
 
+def test_commit_blocks_tilde_expanded_hooks_path_before_approval(
+    mutation_environment, monkeypatch, tmp_path
+):
+    env = mutation_environment
+    repository = env["repository"]
+    target = repository / "tilde-hook-protected.txt"
+    target.write_text("staged content\\n", encoding="utf-8")
+    staged = _approve_and_resume(
+        env, "git_stage", {"paths": ["tilde-hook-protected.txt"]}
+    )
+    assert staged.status == ToolExecutionStatus.SUCCEEDED
+    original_head = env["git"].head()
+    original_index = _git(
+        env["git_executable"], repository, "ls-files", "--stage", "-z"
+    )
+
+    git_home = tmp_path / "git-home"
+    hooks = git_home / ".local-agent-hooks"
+    hooks.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(git_home))
+    _git(
+        env["git_executable"], repository,
+        "config", "core.hooksPath", "~/.local-agent-hooks",
+    )
+    hook = hooks / "pre-commit"
+    hook.write_text(
+        "#!/bin/sh\\necho executed > hook-ran.txt\\nexit 1\\n",
+        encoding="utf-8",
+    )
+    effective_hooks = Path(
+        os.fsdecode(
+            _git(env["git_executable"], repository, "rev-parse", "--git-path", "hooks")
+        ).strip()
+    )
+    assert os.path.normcase(str(effective_hooks.resolve())) == os.path.normcase(
+        str(hooks.resolve())
+    )
+
+    result = env["executor"].execute(
+        env["task_id"],
+        "git_commit",
+        {
+            "message": "must be blocked by expanded hooks path",
+            "paths": ["tilde-hook-protected.txt"],
+        },
+    )
+
+    assert result.status == ToolExecutionStatus.FAILED
+    assert "active Git hooks" in result.error
+    assert env["git"].head() == original_head
+    assert _git(
+        env["git_executable"], repository, "ls-files", "--stage", "-z"
+    ) == original_index
+    assert hook.exists()
+    assert not (repository / "hook-ran.txt").exists()
+
+
 def test_commit_blocks_active_git_hooks_before_approval(mutation_environment):
     env = mutation_environment
     repository = env["repository"]
