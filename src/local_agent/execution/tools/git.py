@@ -792,15 +792,3 @@ class GitTool:
             "files": files,
         }
 
-    def _ensure_no_hooks(self) -> None:
-        hooks = self._hook_snapshot()
-        if hooks["configured_path"]:
-            raise GitToolError(
-                "Git mutation is blocked when core.hooksPath is configured"
-            )
-        if hooks["files"]:
-            names = ", ".join(sorted(hooks["files"]))
-            raise GitToolError(
-                f"Git mutation is blocked by active hook entries: {names}"
-            )
-
