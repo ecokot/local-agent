@@ -1,7 +1,7 @@
-ЭТАП: Закрытие 9.Г — LA-9G-01 принят, документационный closeout
-КОММИТ: 58f2440
-ДАТА: 2026-11-26
-ИСТОЧНИК: Git tree commit 58f2440292f28304ba38dbb2ac9c2921e1c3db69 (tracked files only)
+ЭТАП: Этап 9 завершён; этап 10 не начат
+КОММИТ: fa5c740
+ДАТА: 2026-11-27 01:18:14
+ИСТОЧНИК: git ls-files (tracked files only)
 
 СТРУКТУРА ПРОЕКТА
 local-agent
@@ -11,17 +11,21 @@ local-agent
 |   |   |   +--- LA-9A-01.md
 |   |   |   +--- LA-9B-01.md
 |   |   |   +--- LA-9C-01.md
+|   |   |   +--- LA-9D-01.md
 |   |   |   \--- LA-9G-01.md
 |   |   \--- task
 |   |       +--- LA-9A-01.md
 |   |       +--- LA-9B-01.md
 |   |       +--- LA-9B-02.md
+|   |       +--- LA-9D-01.md
 |   |       \--- LA-9G-01.md
 |   +--- templates
 |   |   +--- REPORT_TEMPLATE.md
 |   |   \--- TASK_TEMPLATE.md
 |   +--- DEVELOPMENT_HISTORY.md
 |   +--- EXECUTION_BACKEND.md
+|   +--- EXECUTION_BACKEND_IMAGE.md
+|   +--- EXECUTION_BACKEND_IMAGE_REPORT.md
 |   +--- EXECUTION_ISOLATION_RESEARCH.md
 |   \--- PROJECT_STRUCTURE_SCRIPT.md
 +--- skills
@@ -75,6 +79,7 @@ local-agent
 +--- test
 |   +--- integration
 |   |   +--- test_execution_backend_integration.py
+|   |   +--- test_git_adapter_windows.py
 |   |   +--- test_git_mutations_windows.py
 |   |   \--- test_git_tool_windows.py
 |   +--- test_agent_models.py
@@ -109,10 +114,10 @@ local-agent
 |   \--- test_write_file.py
 +--- .gitignore
 +--- .python-version
++--- check_model.py
 +--- MODULE_CONTRACTS.md
 +--- PROJECT_STRUCTURE.txt
-+--- README.md
-+--- check_model.py
 +--- plan.MD
 +--- pyproject.toml
++--- README.md
 \--- uv.lock
