@@ -145,6 +145,20 @@ class GitTool:
             raise GitRepositoryError(f"Could not resolve repository root: {error}") from error
         if os.path.normcase(str(actual)) != os.path.normcase(str(expected)):
             raise GitRepositoryError(f"Git root does not match Workspace.root: {actual}")
+        try:
+            common_dir = self._invoke(
+                "repository_common_dir", ["rev-parse", "--git-common-dir"]
+            )
+            common_path = Path(common_dir.stdout.strip())
+            if not common_path.is_absolute():
+                common_path = self._workspace.root / common_path
+            self._repository_lock_key = os.path.normcase(
+                str(common_path.resolve(strict=True))
+            )
+        except (GitToolError, OSError, RuntimeError, ValueError) as error:
+            raise GitRepositoryError(
+                f"Could not resolve common Git directory: {error}"
+            ) from error
 
     def status(self) -> GitStatus:
         result = self._execute(
@@ -277,7 +291,7 @@ class GitTool:
     @contextmanager
     def mutation_lock(self) -> Iterator[None]:
         """Serialize local-agent mutations per canonical repository root."""
-        key = self.repository_root
+        key = self._repository_lock_key
         with _REPOSITORY_LOCKS_GUARD:
             lock = _REPOSITORY_LOCKS.setdefault(key, threading.RLock())
         with lock:
@@ -456,6 +470,7 @@ class GitTool:
 
         return {
             "repository_root": self.repository_root,
+            "common_git_dir": self._repository_lock_key,
             "operation": operation,
             "branch": branch,
             "head": head,
