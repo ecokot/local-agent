@@ -153,7 +153,7 @@ Docker-изоляция снижает риск воздействия выпо�
 
 Проверки фактической конфигурации Docker, доступа к файлам хоста, сетевой изоляции, capabilities и других ограничений зафиксированы в `docs/EXECUTION_ISOLATION_RESEARCH.md`.
 
-Интеграция Backend с `RunCommandTool` и `RunTestsTool` выполняется отдельно и не входит в текущую реализацию самостоятельного Backend.
+`RunCommandTool` и `RunTestsTool` используют Backend через описанную цепочку. Реальная Docker-интеграция инструментов проверяется тестами в `test/integration/test_execution_backend_integration.py`.
 
 
 ## Подготовка Docker-образа
