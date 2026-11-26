@@ -281,16 +281,23 @@ class GitTool:
         with lock:
             yield
 
-    def prepare_mutation(
-        self,
-        operation: str,
-        parameters: dict,
+    def capture_mutation_snapshot(
+        self, operation: str, parameters: dict,
         previous_stage_receipt: dict | None = None,
     ) -> tuple[dict, dict]:
-        """Validate arguments and return the approval-bound repository snapshot."""
+        """Capture the exact state that will be bound to an approval."""
         normalized = self._normalize_mutation_parameters(operation, parameters)
         snapshot = self._capture_mutation_snapshot(
             operation, normalized, previous_stage_receipt
+        )
+        return normalized, snapshot
+
+    def prepare_mutation(
+        self, operation: str, parameters: dict,
+        previous_stage_receipt: dict | None = None,
+    ) -> tuple[dict, dict]:
+        normalized, snapshot = self.capture_mutation_snapshot(
+            operation, parameters, previous_stage_receipt
         )
         self._validate_mutation_preconditions(
             operation, normalized, snapshot, previous_stage_receipt
@@ -308,7 +315,7 @@ class GitTool:
             name = parameters["branch_name"]
             if not isinstance(name, str) or not name or name.startswith("-") or "\x00" in name:
                 raise ValueError("branch_name must be a valid non-empty branch name")
-            check = self._execute("check_branch_name", ["check-ref-format", "--branch", name])
+            check = self._execute("check_branch_name", [ "check-ref-format", f"refs/heads/{name}" ])
             if check.stdout_truncated:
                 raise GitToolError("Git branch-name validation output was truncated")
             exists = self._invoke(
@@ -511,9 +518,9 @@ class GitTool:
             if not separator:
                 raise GitToolError("Git returned malformed index data")
             parts = metadata.split()
-            if len(parts) != 3:
+            if len(parts) != 4:
                 raise GitToolError("Git returned malformed index metadata")
-            entries[path] = (parts[0], parts[1], parts[2])
+            entries[path] = (parts[0], parts[2], parts[3])
         return entries
 
     @staticmethod
