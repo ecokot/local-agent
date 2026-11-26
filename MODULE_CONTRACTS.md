@@ -77,7 +77,7 @@
 - ExecutionRecorder встроен в ToolExecutor, а не вызывается Orchestrator напрямую.
 - RecoveryManager существует отдельно и должен быть вызван приложением при восстановлении; автоматического запуска из Orchestrator/UserInterface нет.
 - StubPlanner, StubExecutor и StubReviewer остаются тестовыми заглушками. StubExecutor — не единственный вариант Executor: ToolExecutorAdapter является реализацией контракта Executor для выполнения плана через инструменты.
-- Прогресс ToolExecutorAdapter хранится только в памяти процесса. Восстановление позиции и продолжение плана после перезапуска не реализованы. При этом approval отдельного Git-действия и stage receipt сохраняются в SQLite; повторный вызов ToolExecutor с тем же task_id/action/parameters может возобновить действие после перезапуска. При этом stage receipt LA-9G-01 хранится в SQLite execution events и доступна новому ToolExecutor после перезапуска.
+- Прогресс ToolExecutorAdapter хранится только в памяти процесса. Восстановление позиции и продолжение плана после перезапуска не реализованы. Approval отдельного Git-действия и stage receipt сохраняются в SQLite; повторный вызов ToolExecutor с тем же task_id/action/parameters может возобновить действие после перезапуска.
 
 ## 3. Инвентаризация модулей
 
