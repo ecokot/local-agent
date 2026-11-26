@@ -112,7 +112,7 @@ A task is not ready for developer handoff merely because its draft is complete.
 
 1. Save the complete task in the project's required task location and assign an explicit version (for example, v1) or immutable commit reference.
 2. Present the exact task text/version to the user and request approval.
-3. Record approval only after the user explicitly approves that exact version. Record approver, date, version, and conditions in the task's decision section and, where required, in the project plan.
+3. Record approval only after the user explicitly approves the exact content identified by its commit or content hash. Record approver, date, version, approved content reference, and conditions in the task's decision section and, where required, in the project plan. Filling approval metadata afterwards must not alter the approved task body; if substantive content changes, create a new version and obtain approval again.
 4. If material task content changes after approval (goal, scope, requirements, acceptance criteria, constraints, permissions, or required checks), increment the version and obtain approval again before handoff. Typographical corrections that cannot change interpretation may be recorded without reapproval.
 5. Only then hand the approved task to the developer. Approval of a stage or earlier task version does not approve a changed task.
 
