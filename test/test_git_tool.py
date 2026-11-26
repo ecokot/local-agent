@@ -24,7 +24,7 @@ class FakeRunner:
         command = arguments[3:]
         if command == ("rev-parse", "--show-toplevel"):
             output = self.root.encode()
-        elif command[0] == "status":
+        elif "status" in command:
             output = b"# branch.oid abc123\0# branch.head main\0? new file.txt\0"
         elif command == ("branch", "--show-current"):
             output = b"main\n"
