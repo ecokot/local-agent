@@ -7,11 +7,10 @@ import os
 import shutil
 import stat
 import threading
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from pathlib import Path, PureWindowsPath
-from typing import Iterator
-from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path, PureWindowsPath
 from local_agent.execution.tools._windows_runner import (
     MAX_OUTPUT_SIZE,
     ProcessResult,
@@ -315,7 +314,9 @@ class GitTool:
             name = parameters["branch_name"]
             if not isinstance(name, str) or not name or name.startswith("-") or "\x00" in name:
                 raise ValueError("branch_name must be a valid non-empty branch name")
-            check = self._execute("check_branch_name", [ "check-ref-format", f"refs/heads/{name}" ])
+            check = self._execute(
+                "check_branch_name", ["check-ref-format", f"refs/heads/{name}"]
+            )
             if check.stdout_truncated:
                 raise GitToolError("Git branch-name validation output was truncated")
             exists = self._invoke(
@@ -358,7 +359,7 @@ class GitTool:
             if (
                 value.startswith("/")
                 or any(part in {"", ".", ".."} for part in parts)
-                or value.startswith(":(")
+                or value.startswith(":")
                 or any(character in value for character in "*?[]")
                 or parts[0].casefold() == ".git"
             ):
@@ -678,7 +679,10 @@ class GitTool:
             self._ensure_no_commit_hooks()
             index_before = self._parse_index_entries(bytes.fromhex(current["index_entries_hex"]))
             old_head = current["head"]
-            self._execute("commit", ["commit", "-m", normalized["message"]])
+            self._execute(
+                "commit",
+                ["-c", "commit.gpgsign=false", "commit", "--no-gpg-sign", "-m", normalized["message"]],
+            )
             new_head = self._snapshot_command("commit_verify_head", ["rev-parse", "--verify", "HEAD"]).decode().strip()
             parent = self._snapshot_command("commit_verify_parent", ["rev-parse", "--verify", "HEAD^"]).decode().strip()
             tree = self._snapshot_command("commit_verify_tree", ["ls-tree", "-r", "-z", "HEAD"])
