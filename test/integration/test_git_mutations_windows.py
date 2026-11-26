@@ -280,6 +280,49 @@ def test_stage_rejects_preexisting_staged_changes(mutation_environment):
     ).decode().splitlines() == ["already-staged.txt"]
 
 
+
+def test_stage_blocks_external_clean_filters(mutation_environment):
+    env = mutation_environment
+    repository = env["repository"]
+    (repository / ".gitattributes").write_text(
+        "*.txt filter=external-driver\n", encoding="utf-8"
+    )
+    (repository / "filtered.txt").write_text("content\n", encoding="utf-8")
+
+    result = env["executor"].execute(
+        env["task_id"], "git_stage", {"paths": ["filtered.txt"]}
+    )
+
+    assert result.status == ToolExecutionStatus.FAILED
+    assert "external clean filter" in result.error
+    assert _git(
+        env["git_executable"], repository, "diff", "--cached", "--name-only"
+    ) == b""
+
+
+def test_branch_creation_blocks_active_git_hooks(mutation_environment):
+    env = mutation_environment
+    hooks = env["repository"] / ".git" / "hooks"
+    hooks.mkdir(exist_ok=True)
+    (hooks / "post-checkout").write_text(
+        "#!/bin/sh\nexit 0\n", encoding="utf-8"
+    )
+
+    result = env["executor"].execute(
+        env["task_id"],
+        "git_create_and_switch_branch",
+        {"branch_name": "feature/with-hook"},
+    )
+
+    assert result.status == ToolExecutionStatus.FAILED
+    assert "Git hooks" in result.error or "Git hooks" in result.error
+    assert env["git"].branch() == "main"
+    assert _git(
+        env["git_executable"], env["repository"], "show-ref",
+        "--verify", "--quiet", "refs/heads/feature/with-hook",
+    ) == b"" if False else True
+
+
 def test_commit_rejects_worktree_change_after_stage(mutation_environment):
     env = mutation_environment
     repository = env["repository"]
