@@ -173,6 +173,48 @@ def test_branch_stage_and_commit_require_separate_approvals(mutation_environment
     ) == b""
 
 
+
+def test_branch_creation_rejects_dirty_and_detached_repositories(mutation_environment):
+    env = mutation_environment
+    repository = env["repository"]
+    (repository / "dirty.txt").write_text("keep\n", encoding="utf-8")
+
+    dirty = env["executor"].execute(
+        env["task_id"],
+        "git_create_and_switch_branch",
+        {"branch_name": "feature/dirty"},
+    )
+    assert dirty.status == ToolExecutionStatus.FAILED
+    assert env["git"].branch() == "main"
+    assert (repository / "dirty.txt").read_text(encoding="utf-8") == "keep\n"
+
+    (repository / "dirty.txt").unlink()
+    _git(env["git_executable"], repository, "checkout", "--detach", "HEAD")
+    detached = env["executor"].execute(
+        env["task_id"],
+        "git_create_and_switch_branch",
+        {"branch_name": "feature/detached"},
+    )
+    assert detached.status == ToolExecutionStatus.FAILED
+    assert env["git"].branch() is None
+
+
+def test_branch_creation_rejects_existing_and_invalid_names(mutation_environment):
+    env = mutation_environment
+    _git(
+        env["git_executable"], env["repository"],
+        "branch", "existing",
+    )
+    for name in ("existing", "-invalid", "not a branch"):
+        result = env["executor"].execute(
+            env["task_id"],
+            "git_create_and_switch_branch",
+            {"branch_name": name},
+        )
+        assert result.status == ToolExecutionStatus.FAILED
+    assert env["git"].branch() == "main"
+
+
 def test_changed_snapshot_requires_new_approval_without_staging(mutation_environment):
     env = mutation_environment
     repository = env["repository"]
