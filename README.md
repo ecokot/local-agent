@@ -160,6 +160,7 @@ Docker integration tests требуют работающего Docker Engine и 
 - [История разработки](docs/DEVELOPMENT_HISTORY.md) — подробности
   завершённых этапов и журнал контрольных точек.
 - [ExecutionBackend](docs/EXECUTION_BACKEND.md) — контракт и поведение
+- [Подготовка Docker-образа ExecutionBackend](docs/EXECUTION_BACKEND_IMAGE.md) — нормативная инструкция сборки и проверки
   Docker-based Backend.
 - [Исследование изоляции](docs/EXECUTION_ISOLATION_RESEARCH.md) —
   воспроизводимые испытания Docker-изоляции.
