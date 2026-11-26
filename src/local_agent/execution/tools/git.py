@@ -622,6 +622,13 @@ class GitTool:
             self._verify_stage_receipt(
                 snapshot, previous_stage_receipt, selected_paths=selected_paths
             )
+            for path, fingerprint in previous_stage_receipt.get(
+                "file_fingerprints", {}
+            ).items():
+                if snapshot["selected_files"].get(path) != fingerprint:
+                    raise GitToolError(
+                        f"Staged file changed after the approved stage: {path}"
+                    )
             if sorted(parameters["paths"]) != sorted(previous_stage_receipt.get("staged_paths", [])):
                 raise GitToolError("git_commit paths must exactly match the previous approved git_stage result")
             if (
