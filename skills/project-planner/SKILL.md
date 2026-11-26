@@ -193,6 +193,7 @@ For projects that require a plan, task/report files, development history, and a 
 
 1. Before implementation: the approved task file exists in the repository and its exact approved version is recorded.
 2. Before independent review: the developer report exists, follows the complete report template, answers every REQ/AC ID, lists every changed file, and attributes every check to its actual runner and environment.
+   If the user runs local checks after the developer's initial handoff, ensure the exact user output is added to the report as a separately attributed validation supplement (or ask the developer to update it). Do not complete independent review while required user evidence is only present in chat and absent from the report.
 3. Before acceptance: planner review findings and their disposition are recorded; unresolved blockers prevent acceptance.
 4. After acceptance/merge: plan status and development history are updated with verified PR/head/merge facts and user-local synchronization evidence.
 5. Refresh generated structure snapshots only after the relevant changes are in their intended branch. The snapshot must describe tracked project files and must not expose local databases, traces, IDE state, secrets, or ignored runtime material.
