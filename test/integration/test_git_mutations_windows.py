@@ -535,6 +535,7 @@ def test_branch_creation_blocks_active_git_hooks(mutation_environment):
             "show-ref", "--verify", "--quiet",
             "refs/heads/feature/with-hook",
         ],
+        check=False,
         capture_output=True,
     )
     assert branch_check.returncode == 1
