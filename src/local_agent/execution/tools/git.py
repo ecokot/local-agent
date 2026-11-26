@@ -353,7 +353,7 @@ class GitTool:
                 or any(part in {"", ".", ".."} for part in parts)
                 or value.startswith(":")
                 or any(character in value for character in "*?[]")
-                or parts[0].casefold() == ".git"
+                or any(part.casefold() == ".git" for part in parts)
             ):
                 raise ValueError(f"Unsafe or ambiguous Git path: {path!r}")
             try:
@@ -375,7 +375,7 @@ class GitTool:
     ) -> dict:
         status = self._snapshot_command(
             "mutation_snapshot_status",
-            ["--no-optional-locks", "status", "--porcelain=v2", "-z", "--branch", "--untracked-files=all"],
+            ["-c", "core.fsmonitor=false", "--no-optional-locks", "status", "--porcelain=v2", "-z", "--branch", "--untracked-files=all"],
         )
         branch = head = None
         status_entries = []
@@ -438,6 +438,10 @@ class GitTool:
         selected_files = {
             path: self._file_fingerprint(path) for path in sorted(selected)
         }
+        filter_attributes = self._snapshot_command(
+            "mutation_snapshot_filter_attributes",
+            ["check-attr", "-z", "filter", "--", *sorted(selected)],
+        ) if selected else b""
 
         return {
             "repository_root": self.repository_root,
@@ -459,6 +463,7 @@ class GitTool:
             "untracked_paths": untracked_paths,
             "conflicts_hex": conflicts.hex(),
             "selected_files": selected_files,
+            "filter_attributes_hex": filter_attributes.hex(),
             "previous_stage_receipt": previous_stage_receipt,
             "hook_state": self._hook_snapshot(),
         }
@@ -558,6 +563,18 @@ class GitTool:
             if path not in selected_paths and current_files.get(path) != fingerprint:
                 raise GitToolError(f"Previously staged file changed after git_stage: {path}")
 
+    @staticmethod
+    def _validate_no_external_filters(snapshot: dict) -> None:
+        fields = bytes.fromhex(snapshot["filter_attributes_hex"]).split(b"\\x00")
+        for index in range(0, len(fields) - 2, 3):
+            attribute = fields[index + 1]
+            value = fields[index + 2]
+            if attribute == b"filter" and value not in {b"unspecified", b"unset"}:
+                path = os.fsdecode(fields[index])
+                raise GitToolError(
+                    f"Staging is blocked because {path!r} uses an external clean filter"
+                )
+
     def _validate_mutation_preconditions(
         self, operation: str, parameters: dict, snapshot: dict,
         previous_stage_receipt: dict | None,
@@ -578,6 +595,7 @@ class GitTool:
             return
         if snapshot["conflicts_hex"]:
             raise GitToolError("Git conflicts must be resolved before this operation")
+        self._validate_no_external_filters(snapshot)
         selected_paths = set(parameters["paths"])
         if operation == "git_stage":
             if previous_stage_receipt is None:
