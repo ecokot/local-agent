@@ -131,6 +131,10 @@ class GitTool:
         self._timeout_seconds = float(timeout_seconds)
         self._max_output_size = max_output_size
         self._runner = runner or run_windows
+        if os.environ.get("GIT_INDEX_FILE"):
+            raise GitRepositoryError(
+                "GitTool does not support the GIT_INDEX_FILE environment override"
+            )
 
         try:
             result = self._invoke("repository_root", ["rev-parse", "--show-toplevel"], check=False)
@@ -550,9 +554,15 @@ class GitTool:
         }
 
     def _git_path(self, name: str) -> Path:
-        value = self._snapshot_command(f"git_path_{name}", ["rev-parse", "--git-path", name])
-        path = Path(os.fsdecode(value).strip())
-        return path if path.is_absolute() else self._workspace.root / path
+        if name == "hooks":
+            return Path(self._repository_lock_key) / "hooks"
+        if name not in {"index", "index.lock"}:
+            raise ValueError(f"Unsupported Git metadata path: {name}")
+        value = self._snapshot_command(
+            f"git_path_{name}", ["rev-parse", "--absolute-git-dir"]
+        )
+        git_dir = Path(os.fsdecode(value).strip()).resolve(strict=True)
+        return git_dir / name
 
     def _snapshot_command(self, operation: str, arguments: list[str]) -> bytes:
         result = self._execute(operation, arguments)
