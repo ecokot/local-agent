@@ -31,11 +31,11 @@ This skill is project-independent. Do not embed a repository's current status, s
 Before editing:
 1. Read the complete task specification, including exclusions and acceptance criteria.
 2. Verify that the task is explicitly user-approved and identify its exact approved version/commit. If approval is absent, ambiguous, or refers to another version, stop and ask the planner.
-2. Read the project's governing plan and the relevant technical contracts.
-3. Confirm the base branch and commit.
-4. Inspect Git status and preserve all pre-existing or user-owned changes.
-5. Read the affected source files, their callers, related tests, and nearby implementation patterns.
-6. Identify existing behavior and any compatibility constraints.
+3. Read the project's governing plan and the relevant technical contracts.
+4. Confirm the base branch and commit.
+5. Inspect Git status and preserve all pre-existing or user-owned changes.
+6. Read the affected source files, their callers, related tests, and nearby implementation patterns.
+7. Identify existing behavior and any compatibility constraints.
 
 Do not rely solely on task summaries or old conversation context when the repository is available. If a required file, decision, or test environment is unavailable, say so rather than guessing.
 
