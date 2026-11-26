@@ -450,7 +450,7 @@ Read-only Git-действия отображаются на методы пер
 - `git_create_and_switch_branch` допускается только при существующем HEAD, attached branch и полностью чистом состоянии; команда — `git switch -c`.
 - `git_stage` допускается только с чистым исходным index или с index, совпадающим с receipt предыдущего успешного одобренного stage; команда — `git add -- <explicit paths>`. Внешние clean filters блокируются. Postcondition проверяет, что изменились только разрешённые index entries и файлы не изменились.
 - `git_commit` требует receipt предыдущего stage, точного списка staged paths, отсутствия unstaged/untracked/conflict изменений и совпадения index fingerprint; postcondition проверяет новый HEAD, parent и точный commit tree. Все активные Git hooks и настроенный `core.hooksPath` блокируют branch/commit; commit signing отключён фиксированным аргументом. Автоматического rollback нет.
-- Per-repository lock сериализует мутации одного репозитория внутри процесса local-agent. Внешние процессы этот lock не соблюдают; абсолютная атомарность между последней проверкой и Git syscall не гарантируется.
+- Per-repository lock keyed by canonical common Git directory сериализует мутации одного репозитория, включая linked worktrees, внутри процесса local-agent. Внешние процессы этот lock не соблюдают; абсолютная атомарность между последней проверкой и Git syscall не гарантируется.
 - Таймаут по умолчанию — 15 секунд, максимальный — 120 секунд.
 - Максимальный сохраняемый вывод ограничен `MAX_OUTPUT_SIZE` (см. константу runner); stdout и stderr читаются параллельно, остаток вычитывается с отбрасыванием после достижения лимита.
 - Timeout и ошибки запуска/runner преобразуются в типизированные ошибки GitTool.
