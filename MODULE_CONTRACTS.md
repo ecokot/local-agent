@@ -77,7 +77,7 @@
 - ExecutionRecorder встроен в ToolExecutor, а не вызывается Orchestrator напрямую.
 - RecoveryManager существует отдельно и должен быть вызван приложением при восстановлении; автоматического запуска из Orchestrator/UserInterface нет.
 - StubPlanner, StubExecutor и StubReviewer остаются тестовыми заглушками. StubExecutor — не единственный вариант Executor: ToolExecutorAdapter является реализацией контракта Executor для выполнения плана через инструменты.
-- Прогресс ToolExecutorAdapter хранится только в памяти процесса. Восстановление позиции и продолжение плана после перезапуска не реализованы. При этом stage receipt LA-9G-01 хранится в SQLite execution events и доступна новому ToolExecutor после перезапуска.
+- Прогресс ToolExecutorAdapter хранится только в памяти процесса. Восстановление позиции и продолжение плана после перезапуска не реализованы. При этом approval отдельного Git-действия и stage receipt сохраняются в SQLite; повторный вызов ToolExecutor с тем же task_id/action/parameters может возобновить действие после перезапуска. При этом stage receipt LA-9G-01 хранится в SQLite execution events и доступна новому ToolExecutor после перезапуска.
 
 ## 3. Инвентаризация модулей
 
@@ -413,7 +413,7 @@ Read-only Git-действия отображаются на методы пер
 
 **Файл:** `src/local_agent/execution/tools/git.py`  
 **Внутренний runner:** `src/local_agent/execution/tools/_windows_runner.py`  
-**Тесты:** `test/test_git_tool.py`, `test/test_windows_runner.py`, `test/integration/test_git_tool_windows.py`.
+**Тесты:** `test/test_git_tool.py`, `test/test_windows_runner.py`, `test/integration/test_git_tool_windows.py`, `test/integration/test_git_mutations_windows.py`.
 
 Назначение: читать состояние локального Git-репозитория и выполнять три строго ограниченные изменяющие операции в репозитории, корень которого совпадает с `Workspace.root`. GitTool запускает установленный `git.exe` непосредственно на Windows-хосте; Docker ExecutionBackend для этих операций не используется.
 
