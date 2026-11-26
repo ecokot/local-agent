@@ -1,7 +1,7 @@
-ЭТАП: Ревизия процесса разработки — PR #14
-КОММИТ: fd819c0
-ДАТА: 2026-11-26 10:10:14
-ИСТОЧНИК: git ls-files (tracked files only)
+ЭТАП: Закрытие 9.Г — LA-9G-01 принят, документационный closeout
+КОММИТ: 58f2440
+ДАТА: 2026-11-26
+ИСТОЧНИК: Git tree commit 58f2440292f28304ba38dbb2ac9c2921e1c3db69 (tracked files only)
 
 СТРУКТУРА ПРОЕКТА
 local-agent
@@ -10,11 +10,13 @@ local-agent
 |   |   +--- report
 |   |   |   +--- LA-9A-01.md
 |   |   |   +--- LA-9B-01.md
-|   |   |   \--- LA-9C-01.md
+|   |   |   +--- LA-9C-01.md
+|   |   |   \--- LA-9G-01.md
 |   |   \--- task
 |   |       +--- LA-9A-01.md
 |   |       +--- LA-9B-01.md
-|   |       \--- LA-9B-02.md
+|   |       +--- LA-9B-02.md
+|   |       \--- LA-9G-01.md
 |   +--- templates
 |   |   +--- REPORT_TEMPLATE.md
 |   |   \--- TASK_TEMPLATE.md
@@ -73,6 +75,7 @@ local-agent
 +--- test
 |   +--- integration
 |   |   +--- test_execution_backend_integration.py
+|   |   +--- test_git_mutations_windows.py
 |   |   \--- test_git_tool_windows.py
 |   +--- test_agent_models.py
 |   +--- test_agent_protocols.py
@@ -88,8 +91,8 @@ local-agent
 |   +--- test_list_directory.py
 |   +--- test_model_client.py
 |   +--- test_model_router.py
-|   +--- test_orchestrator.py
 |   +--- test_orchestrator_verification.py
+|   +--- test_orchestrator.py
 |   +--- test_plan_approval.py
 |   +--- test_plan_models.py
 |   +--- test_read_file.py
@@ -97,8 +100,8 @@ local-agent
 |   +--- test_run_command.py
 |   +--- test_run_tests.py
 |   +--- test_state_manager.py
-|   +--- test_tool_executor.py
 |   +--- test_tool_executor_adapter.py
+|   +--- test_tool_executor.py
 |   +--- test_user_interface.py
 |   +--- test_verification_executor.py
 |   +--- test_windows_runner.py
