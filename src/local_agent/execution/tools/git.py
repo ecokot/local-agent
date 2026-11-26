@@ -147,7 +147,9 @@ class GitTool:
             raise GitRepositoryError(f"Git root does not match Workspace.root: {actual}")
 
     def status(self) -> GitStatus:
-        result = self._execute("status", ["status", "--porcelain=v2", "-z", "--branch"])
+        result = self._execute(
+            "status", ["--no-optional-locks", "status", "--porcelain=v2", "-z", "--branch"]
+        )
         branch = head = None
         entries = []
         fields = result.stdout.split("\x00")
