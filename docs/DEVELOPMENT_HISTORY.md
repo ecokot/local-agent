@@ -1013,3 +1013,75 @@ PR оставался объединяемым. По явному разреше
 - После объединения пользователь синхронизировал локальную `main` через `git pull origin main`; подтвердил `up to date with origin/main` и `working tree clean`.
 
 **Итог:** подэтап 9.Б принят и объединён в `main`. GitTool остаётся самостоятельным и read-only; интеграция в ToolExecutor/Adapter относится к следующему подэтапу 9.В. Изменяющие Git-операции и approval snapshot относятся к 9.Г.
+
+---
+
+## Подэтап 9.В. Регистрация read-only GitTool в ToolExecutor и интеграция через Adapter (LA-9C-01)
+
+**Дата приёмки:** 26.11.2026.  
+**Решение:** принят после независимой проверки реализации, тестов, технических контрактов и отчёта. PR №11 объединён в `main` методом squash.
+
+### Результат
+
+В `ToolExecutor` зарегистрированы все восемь read-only действий существующего `GitTool`:
+
+- `git_status`;
+- `git_branch`;
+- `git_head`;
+- `git_branches`;
+- `git_log`;
+- `git_diff`;
+- `git_staged_diff`;
+- `git_changed_files`.
+
+Экземпляр GitTool передаётся через constructor injection; ToolExecutor не создаёт его самостоятельно. Для read-only Git-действий не запрашивается подтверждение `ApprovalManager`. Успешные вызовы, ошибки GitTool и ошибки валидации параметров фиксируются через существующий `ExecutionRecorder`.
+
+Параметры `git_log` проверяются с default 20 и допустимым диапазоном 1–100; bool отклоняется отдельно, несмотря на то что в Python bool является подклассом int. Для `git_diff` и `git_staged_diff` поддерживается список путей с default пустым списком; неизвестные параметры и неверные типы контейнера отклоняются. Проверка безопасности отдельных путей остаётся ответственностью GitTool.
+
+Существующий `ToolExecutorAdapter` использован без Git-специфичных изменений. Сквозной тест подтверждает вызов `git_status` через Adapter. Обновлён `MODULE_CONTRACTS.md`.
+
+### Область и ограничения
+
+Изменены пять файлов:
+- `src/local_agent/execution/tool_executor.py`;
+- `test/test_tool_executor.py`;
+- `test/test_tool_executor_adapter.py`;
+- `MODULE_CONTRACTS.md`;
+- `docs/stage-09/report/LA-9C-01.md`.
+
+GitTool, Orchestrator, ApprovalManager и `plan.MD` в feature PR не изменялись. Изменяющие Git-операции и их подтверждения относятся к подэтапу 9.Г.
+
+### Проверки
+
+**Все локальные проверки запускал пользователь на Windows в `C:\Py\local-agent`.** Постановщик проверил реализацию, тесты, отчёт и diff в GitHub; локально pytest и Ruff не запускал.
+
+- `uv run pytest -v`: **494 passed, 3 skipped** (32.39 s).
+- `uv run ruff check .`: **All checks passed**.
+- `git diff --check origin/main...HEAD`: команда завершилась без вывода ошибок.
+- Отдельный запуск целевых тестов не выполнялся; их покрытие вошло в полный pytest.
+
+### Независимая проверка и объединение
+
+- Задание: https://github.com/ecokot/local-agent/blob/main/docs/stage-09/task/LA-9C-01.md
+- Отчёт: https://github.com/ecokot/local-agent/blob/main/docs/stage-09/report/LA-9C-01.md
+- PR №11: https://github.com/ecokot/local-agent/pull/11
+- Ветка: `stage-9c-tool-executor-integration`.
+- Проверенный HEAD PR: `93b98508b29201a3f522156aed372ca8a1c193c7`.
+- Базовый commit: `ad89d0fd20191354bda1a343a8168dfc87f793f6`.
+- PR №11 объединён в `main` 26.11.2026 методом squash.
+- Merge commit: `1fad7e9f64b9e9f711c6083c11de5e32ee20f5d5`.
+
+### Проверка локальной копии пользователя
+
+После объединения PR №12 с обновлением навыка постановщика пользователь предоставил диагностический вывод: локальная рабочая копия находилась на feature-ветке, дерево было чистым. Затем пользователь самостоятельно переключился на `main` и выполнил `git pull --ff-only origin main`. Получен fast-forward от `1fad7e9` до `9afda5f`.
+
+Последующая проверка, также выполненная пользователем, подтвердила:
+- текущая ветка — `main`;
+- `git status --short --branch` — `## main...origin/main`, без незакоммиченных изменений;
+- локальный HEAD и `origin/main` совпадают: `9afda5f4f2054c820d072b68e2a42925dbc440d6`;
+- последний commit — merge PR №12 `docs: define planner closeout, local verification, and history duties (#12)`.
+
+Таким образом, локальная копия пользователя синхронизирована с GitHub `main` на указанном commit и имеет чистое рабочее дерево. Численные результаты pytest/Ruff относятся к запуску пользователя на feature-ветке до merge PR №11; повторный запуск после pull не заявляется.
+
+**Итог:** подэтап 9.В принят и объединён в `main`. Следующий подэтап — 9.Г: безопасные изменяющие Git-операции и подтверждения.
+
