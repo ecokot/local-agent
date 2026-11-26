@@ -1,20 +1,16 @@
-﻿ЭТАП: Этап 9.Б
-КОММИТ: 0ee3b12
-ДАТА: 2026-11-25 15:58:08
+ЭТАП: Ревизия процесса разработки (PR #14, ожидает приёмки)
+КОММИТ: 2f26120
+ДАТА: 2026-11-26
+ИСТОЧНИК: Git tree (tracked files only; local/secret patterns excluded)
 
 СТРУКТУРА ПРОЕКТА
 local-agent
-+--- .gigaide
-|   \--- gigaide.properties
-+--- data
-|   +--- traces
-|   |   \--- f77ae6fd-9826-4a9d-a2cc-7db6cc8c1468.jsonl
-|   \--- agent.db
 +--- docs
 |   +--- stage-09
 |   |   +--- report
 |   |   |   +--- LA-9A-01.md
-|   |   |   \--- LA-9B-01.md
+|   |   |   +--- LA-9B-01.md
+|   |   |   \--- LA-9C-01.md
 |   |   \--- task
 |   |       +--- LA-9A-01.md
 |   |       +--- LA-9B-01.md
@@ -110,10 +106,10 @@ local-agent
 |   \--- test_write_file.py
 +--- .gitignore
 +--- .python-version
-+--- check_model.py
 +--- MODULE_CONTRACTS.md
-+--- plan.MD
 +--- PROJECT_STRUCTURE.txt
-+--- pyproject.toml
 +--- README.md
++--- check_model.py
++--- plan.MD
++--- pyproject.toml
 \--- uv.lock

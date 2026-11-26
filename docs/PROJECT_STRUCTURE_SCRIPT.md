@@ -1,77 +1,124 @@
 # Скрипт создания PROJECT_STRUCTURE.txt
 
-**Назначение:** сформировать в корне проекта снимок структуры файлов
-и каталогов, короткий SHA текущего Git-коммита, дату создания и метку
-текущего этапа.
+**Назначение:** сформировать снимок структуры отслеживаемых Git-файлов
+проекта, короткий SHA исходного commit, дату создания и метку текущего
+состояния.
 
-**Использование:** открыть PowerShell в корне репозитория, установить
-актуальное значение переменной $stage в начале скрипта и выполнить
-его целиком. После генерации проверить содержимое PROJECT_STRUCTURE.txt
-и при необходимости добавить обновлённый снимок в Git.
+Снимок описывает версионируемое содержимое проекта, а не локальную
+рабочую среду. Источник перечня файлов — `git ls-files`; незакоммиченные
+untracked-файлы не включаются. Локальные базы, traces, логи, workspace,
+IDE-настройки, виртуальные окружения и прочие runtime-данные не должны
+попадать в снимок.
 
-**Важно:** метку этапа нужно обновлять вручную перед каждым запуском.
-Значение «Этап 9.Б» ниже — отправная настройка для актуального снимка;
-перед каждым запуском его необходимо сверять с текущим этапом.
+## Команда PowerShell
 
----
-
-## Снимок структуры проекта
-
-Выполнить из корневой папки проекта в PowerShell.
-
-Скрипт создаёт файл `PROJECT_STRUCTURE.txt`, содержащий:
-- текущий этап разработки;
-- короткий SHA текущего Git-коммита;
-- дату и время создания снимка;
-- актуальное дерево файлов и каталогов проекта.
-
-Из дерева исключаются каталоги `.venv`, `.git`, `.idea`, `.pytest_cache`, `.ruff_cache`, `__pycache__` на всех уровнях вложенности.
-
-### Команда
+Откройте PowerShell в корне репозитория и выполните скрипт целиком.
+Скрипт запросит метку этапа и не использует устаревшее значение по
+умолчанию.
 
 ```powershell
-$stage = "Этап 9.Б"
+$ErrorActionPreference = "Stop"
 $root = (Get-Location).Path
-$commit = git rev-parse --short HEAD
 
-if ($LASTEXITCODE -ne 0) {
-    throw "Не удалось получить Git-коммит. Проверьте, что текущая папка является Git-репозиторием."
+$stage = Read-Host "Введите актуальную метку этапа/состояния"
+if ([string]::IsNullOrWhiteSpace($stage)) {
+    throw "Метка этапа обязательна. Снимок не создан."
 }
 
-$exclude = @(
-    ".venv",
-    ".git",
-    ".idea",
-    ".pytest_cache",
-    ".ruff_cache",
-    "__pycache__"
+$commit = git -C $root rev-parse --short HEAD
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($commit)) {
+    throw "Не удалось получить Git-коммит. Запустите скрипт из корня репозитория."
+}
+
+$trackedOutput = @(git -C $root ls-files)
+if ($LASTEXITCODE -ne 0) {
+    throw "Не удалось получить список отслеживаемых Git-файлов."
+}
+
+# Защита на случай, если runtime-каталог был добавлен в Git до появления
+# соответствующего правила .gitignore.
+$excludedDirectories = @(
+    ".git", ".venv", "venv", ".idea", ".vscode", ".gigaide",
+    "__pycache__", ".pytest_cache", ".ruff_cache", ".mypy_cache",
+    "data", "logs", "traces", "workspace", "htmlcov"
 )
+$excludedFilePatterns = @(
+    ".env", ".env.*", "*.pem", "*.key", "*.p12", "*.pfx",
+    "*credentials*", "*secret*", "*.db", "*.sqlite", "*.sqlite3"
+)
+
+$tracked = @(
+    $trackedOutput | Where-Object {
+        $normalized = $_ -replace "\\", "/"
+        $segments = $normalized.Split("/")
+        $fileName = $segments[-1]
+        $blocked = $false
+        foreach ($segment in $segments) {
+            if ($segment -in $excludedDirectories) {
+                $blocked = $true
+                break
+            }
+        }
+        if (-not $blocked) {
+            foreach ($pattern in $excludedFilePatterns) {
+                if ($fileName -like $pattern -and $fileName -ne ".env.example") {
+                    $blocked = $true
+                    break
+                }
+            }
+        }
+        -not $blocked
+    } | Sort-Object
+)
+
+if ($tracked.Count -eq 0) {
+    throw "После фильтрации не осталось отслеживаемых файлов."
+}
 
 function Get-ProjectTree {
     param(
-        [string]$Path,
+        [string]$RelativePath = "",
         [string]$Prefix = ""
     )
 
+    $directoryPrefix = if ($RelativePath) { "$RelativePath/" } else { "" }
+    $children = foreach ($file in $tracked) {
+        if ($file.StartsWith($directoryPrefix, [System.StringComparison]::Ordinal)) {
+            $rest = $file.Substring($directoryPrefix.Length)
+            $parts = $rest.Split("/", 2)
+            [pscustomobject]@{
+                Name = $parts[0]
+                IsDirectory = ($parts.Count -gt 1)
+            }
+        }
+    }
+
     $items = @(
-        Get-ChildItem -LiteralPath $Path -Force |
-        Where-Object {
-            -not ($_.PSIsContainer -and $_.Name -in $exclude)
+        $children |
+        Group-Object Name |
+        ForEach-Object {
+            [pscustomobject]@{
+                Name = $_.Name
+                IsDirectory = [bool]($_.Group | Where-Object { $_.IsDirectory })
+            }
         } |
-        Sort-Object @{ Expression = { -not $_.PSIsContainer } }, Name
+        Sort-Object @{ Expression = { -not $_.IsDirectory } }, Name
     )
 
     for ($i = 0; $i -lt $items.Count; $i++) {
         $item = $items[$i]
         $last = $i -eq ($items.Count - 1)
-
         $branch = if ($last) { "\--- " } else { "+--- " }
-
         "$Prefix$branch$($item.Name)"
 
-        if ($item.PSIsContainer) {
+        if ($item.IsDirectory) {
+            $childPath = if ($RelativePath) {
+                "$RelativePath/$($item.Name)"
+            } else {
+                $item.Name
+            }
             $nextPrefix = $Prefix + $(if ($last) { "    " } else { "|   " })
-            Get-ProjectTree -Path $item.FullName -Prefix $nextPrefix
+            Get-ProjectTree -RelativePath $childPath -Prefix $nextPrefix
         }
     }
 }
@@ -80,16 +127,27 @@ $lines = @(
     "ЭТАП: $stage"
     "КОММИТ: $commit"
     "ДАТА: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
+    "ИСТОЧНИК: git ls-files (tracked files only)"
     ""
     "СТРУКТУРА ПРОЕКТА"
     (Split-Path $root -Leaf)
 )
-
-$lines += @(Get-ProjectTree -Path $root)
+$lines += @(Get-ProjectTree)
 
 $output = Join-Path $root "PROJECT_STRUCTURE.txt"
 $lines | Set-Content -LiteralPath $output -Encoding UTF8
-
 Write-Host "Снимок структуры проекта создан: $output"
+Write-Host "Включено отслеживаемых файлов: $($tracked.Count)"
 ```
-------------------------------------------------------------------------
+
+## Проверка результата
+
+1. Убедиться, что метка соответствует текущему состоянию: не указывать
+   следующий подэтап как уже начатый или принятый.
+2. Проверить, что commit — ожидаемый исходный HEAD локальной `main`.
+3. Убедиться, что в дереве нет `.gigaide`, `data`, `logs`, `traces`,
+   `workspace`, виртуальных окружений, IDE-каталогов и кэшей.
+4. Убедиться, что добавленные в Git task/report/docs файлы присутствуют.
+5. Включать обновлённый снимок в документационный PR. В нём будет
+   указан исходный commit, на котором снимок был построен; это ожидаемо,
+   поскольку сам снимок становится частью следующего commit.
