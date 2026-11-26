@@ -633,6 +633,16 @@ class GitTool:
             return
         raise ValueError(f"Unsupported Git mutation: {operation}")
 
+    def _execute_mutation_command(
+        self, operation: str, arguments: list[str]
+    ) -> GitCommandResult:
+        result = self._execute(operation, arguments)
+        if result.stdout_truncated or result.stderr_truncated:
+            raise GitToolError(
+                f"Git output was truncated during mutating operation {operation!r}"
+            )
+        return result
+
     def _execute_approved_mutation(
         self,
         operation: str,
@@ -651,7 +661,9 @@ class GitTool:
 
         if operation == "git_create_and_switch_branch":
             branch_name = normalized["branch_name"]
-            self._execute("create_and_switch_branch", ["switch", "-c", branch_name])
+            self._execute_mutation_command(
+                "create_and_switch_branch", ["switch", "-c", branch_name]
+            )
             after = self._capture_mutation_snapshot(operation, normalized, None)
             if after["branch"] != branch_name or after["head"] != current["head"] or after["status_entries_hex"]:
                 raise GitToolError("Branch creation postcondition failed; repository state was not rolled back")
@@ -663,7 +675,9 @@ class GitTool:
             before_staged = set(current["staged_paths"])
             before_unstaged = set(current["unstaged_paths"])
             before_untracked = set(current["untracked_paths"])
-            self._execute("stage", ["add", "--", *normalized["paths"]])
+            self._execute_mutation_command(
+                "stage", ["add", "--", *normalized["paths"]]
+            )
             after = self._capture_mutation_snapshot(operation, normalized, previous_stage_receipt)
             after_index = self._parse_index_entries(bytes.fromhex(after["index_entries_hex"]))
             changed = {
@@ -707,9 +721,12 @@ class GitTool:
         if operation == "git_commit":
             index_before = self._parse_index_entries(bytes.fromhex(current["index_entries_hex"]))
             old_head = current["head"]
-            self._execute(
+            self._execute_mutation_command(
                 "commit",
-                ["-c", "commit.gpgsign=false", "commit", "--no-gpg-sign", "-m", normalized["message"]],
+                [
+                    "-c", "commit.gpgsign=false", "commit",
+                    "--no-gpg-sign", "-m", normalized["message"],
+                ],
             )
             new_head = self._snapshot_command("commit_verify_head", ["rev-parse", "--verify", "HEAD"]).decode().strip()
             parent = self._snapshot_command("commit_verify_parent", ["rev-parse", "--verify", "HEAD^"]).decode().strip()
