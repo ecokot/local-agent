@@ -21,21 +21,25 @@ class FakeRunner:
 
     def __call__(self, executable, arguments, cwd, timeout, max_output_size):
         self.calls.append((executable, arguments, cwd, timeout))
-        if arguments[1:] == ("rev-parse", "--show-toplevel"):
+        command = arguments[3:]
+        if command in {
+            ("rev-parse", "--show-toplevel"),
+            ("rev-parse", "--git-common-dir"),
+        }:
             output = self.root.encode()
-        elif arguments[1] == "status":
+        elif "status" in command:
             output = b"# branch.oid abc123\0# branch.head main\0? new file.txt\0"
-        elif arguments[1:] == ("branch", "--show-current"):
+        elif command == ("branch", "--show-current"):
             output = b"main\n"
-        elif arguments[1:] == ("rev-parse", "--verify", "HEAD"):
+        elif command == ("rev-parse", "--verify", "HEAD"):
             output = b"abc123\n"
-        elif arguments[1] == "for-each-ref":
+        elif command[0] == "for-each-ref":
             output = b"main\tabc123\t*\n"
-        elif arguments[1] == "log":
+        elif command[0] == "log":
             output = b"abc123\x00Author\x002026-01-01T00:00:00+00:00\x00subject\x00"
-        elif arguments[1:4] == ("diff", "--name-only", "-z"):
+        elif command[:3] == ("diff", "--name-only", "-z"):
             output = b"tracked file.txt\0"
-        elif arguments[1:3] == ("ls-files", "--others"):
+        elif command[:2] == ("ls-files", "--others"):
             output = b"new file.txt\0"
         else:
             output = b""
@@ -52,7 +56,10 @@ def tool(tmp_path, monkeypatch):
 def test_checks_workspace_root_and_runs_git_from_workspace(tool, tmp_path):
     _, runner = tool
     assert runner.calls[0][2] == str(tmp_path.resolve())
-    assert runner.calls[0][1] == ("--literal-pathspecs", "rev-parse", "--show-toplevel")
+    assert runner.calls[0][1] == (
+        "--literal-pathspecs", "-c", "core.fsmonitor=false",
+        "rev-parse", "--show-toplevel",
+    )
 
 
 def test_read_only_operations(tool):
@@ -88,7 +95,10 @@ def test_nonzero_exit_is_an_error(tmp_path, monkeypatch):
     monkeypatch.setattr("local_agent.execution.tools.git.shutil.which", lambda _: "git")
 
     def runner(executable, arguments, cwd, timeout, max_output_size):
-        if arguments[1:] == ("rev-parse", "--show-toplevel"):
+        if arguments[3:] in {
+            ("rev-parse", "--show-toplevel"),
+            ("rev-parse", "--git-common-dir"),
+        }:
             return ProcessResult(str(tmp_path).encode(), b"", 0, False, False, False)
         return ProcessResult(b"", b"bad revision", 128, False, False, False)
 

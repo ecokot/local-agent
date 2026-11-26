@@ -77,7 +77,7 @@
 - ExecutionRecorder встроен в ToolExecutor, а не вызывается Orchestrator напрямую.
 - RecoveryManager существует отдельно и должен быть вызван приложением при восстановлении; автоматического запуска из Orchestrator/UserInterface нет.
 - StubPlanner, StubExecutor и StubReviewer остаются тестовыми заглушками. StubExecutor — не единственный вариант Executor: ToolExecutorAdapter является реализацией контракта Executor для выполнения плана через инструменты.
-- Прогресс ToolExecutorAdapter хранится только в памяти процесса. Восстановление позиции и продолжение плана после перезапуска не реализованы.
+- Прогресс ToolExecutorAdapter хранится только в памяти процесса. Восстановление позиции и продолжение плана после перезапуска не реализованы. Approval отдельного Git-действия и stage receipt сохраняются в SQLite; повторный вызов ToolExecutor с тем же task_id/action/parameters может возобновить действие после перезапуска.
 
 ## 3. Инвентаризация модулей
 
@@ -88,7 +88,7 @@
 | src/local_agent/__init__.py | Маркер пакета. Самостоятельного прикладного API не добавляет. |
 | src/local_agent/models/__init__.py | Пакет моделей. Сами контракты определены в отдельных файлах models/*.py. |
 | src/local_agent/execution/__init__.py | Публичный API подсистемы выполнения: ExecutionBackend, ExecutionResult, ExecutionBackendError, ExecutionRecorder и модели событий/результатов ToolExecutor. |
-| src/local_agent/execution/tools/git.py | Самостоятельный read-only GitTool для чтения состояния локального репозитория в пределах Workspace. На этапе 9.Б ещё не зарегистрирован в ToolExecutor. |
+| src/local_agent/execution/tools/git.py | GitTool с read-only диагностикой и тремя фиксированными изменяющими операциями, защищёнными snapshot approval, per-repository lock и проверками pre/postconditions. |
 | src/local_agent/execution/tools/_windows_runner.py | Внутренний Windows runner на Win32 API: запуск процесса в Job Object, ограниченный сбор stdout/stderr, timeout, cleanup и whitelist наследуемых handles. |
 
 ### 3.2 StateManager — состояние задач
@@ -339,14 +339,14 @@
 - src/local_agent/execution/tools/git.py
 - src/local_agent/execution/workspace.py
 
-**Тесты:** test/test_tool_executor.py, test/test_tool_executor_adapter.py и отдельные тесты инструментов.
+**Тесты:** test/test_tool_executor.py, test/test_tool_executor_adapter.py, test/integration/test_git_mutations_windows.py и отдельные тесты инструментов.
 
 Назначение: единая точка запуска фиксированного набора инструментов. ToolExecutor связывает переданные экземпляры инструментов с ApprovalManager и ExecutionRecorder.
 
 Конструктор принимает:
 - approval_manager: ApprovalManager
 - экземпляры семи существующих инструментов;
-- git_tool: GitTool — существующий экземпляр read-only GitTool;
+- git_tool: GitTool — существующий экземпляр GitTool;
 - execution_recorder: ExecutionRecorder.
 
 ToolExecutor не создаёт GitTool самостоятельно. Создание GitTool и Workspace остаётся ответственностью composition root вызывающего приложения.
@@ -374,8 +374,11 @@ ToolExecutor не создаёт GitTool самостоятельно. Созд�
 | git_diff | GIT_DIFF | paths: list[str], необязательный, default [] | Нет |
 | git_staged_diff | GIT_STAGED_DIFF | paths: list[str], необязательный, default [] | Нет |
 | git_changed_files | GIT_CHANGED_FILES | нет | Нет |
+| git_create_and_switch_branch | GIT_CREATE_AND_SWITCH_BRANCH | branch_name: str | Да |
+| git_stage | GIT_STAGE | paths: list[str] | Да |
+| git_commit | GIT_COMMIT | message: str, paths: list[str] | Да |
 
-Git-действия отображаются на методы переданного GitTool: status, branch, head, branches, log, diff, staged_diff и changed_files соответственно. Валидация имён параметров и ограничений limit/container paths выполняется ToolExecutor до вызова GitTool; проверка безопасности и содержимого отдельных путей остаётся ответственностью GitTool.
+Read-only Git-действия отображаются на методы переданного GitTool: status, branch, head, branches, log, diff, staged_diff и changed_files. Изменяющие действия обрабатываются отдельным путём ToolExecutor: GitTool сначала нормализует параметры и снимает snapshot, ToolExecutor добавляет его в параметры ApprovalManager, а после APPROVED повторно снимает snapshot под per-repository lock. При изменении состояния создаётся новый PENDING approval; команда не запускается. Перед вызовом повторно проверяются preconditions и approval hash.
 
 Поведение:
 
@@ -385,6 +388,8 @@ Git-действия отображаются на методы переданн
 - При PENDING возвращает WAITING_FOR_APPROVAL без запуска инструмента.
 - После APPROVED начинает запись выполнения через ExecutionRecorder, затем непосредственно перед вызовом инструмента повторно проверяет разрешение через is_approved() с теми же task_id, action_type и parameters.
 - Read-only Git-действия не вызывают request_approval() или is_approved(); они выполняются через общий механизм ExecutionRecorder.
+- `git_create_and_switch_branch`, `git_stage` и `git_commit` требуют отдельного approval; до него запускаются только read-only Git-команды. Snapshot входит в canonical parameters hash существующего ApprovalManager.
+- Успешный результат `git_stage` вместе с внутренней stage receipt записывается в SQLite как ExecutionRecorder event; следующий `git_stage` или `git_commit` использует эту receipt для доказательства происхождения текущего index, в том числе после перезапуска ToolExecutor.
 - Ошибки валидации параметров Git-действий фиксируются как неуспешные выполнения через ExecutionRecorder до вызова GitTool; некорректные параметры не доходят до инструмента.
 - При успешном выполнении вызывается finish_execution().
 - При перехваченной ошибке выполнения вызывается fail_execution().
@@ -397,26 +402,26 @@ Git-действия отображаются на методы переданн
 - ToolExecutor вызывается из ToolExecutorAdapter, который реализует контракт Executor и последовательно исполняет шаги Plan; Adapter не содержит Git-специфичной диспетчеризации.
 - Для требующих подтверждения действий ToolExecutor создаёт запрос через ApprovalManager. При PENDING возвращает WAITING_FOR_APPROVAL; после одобрения повторный вызов ToolExecutor с теми же параметрами позволяет выполнить действие.
 - run_command и run_tests требуют подтверждения. ToolExecutor повторно проверяет одобрение непосредственно перед вызовом соответствующего инструмента.
-- GitTool предоставляет только read-only операции и не запрашивает подтверждение; изменяющие Git-действия не зарегистрированы.
+- Все три изменяющие Git-действия используют фиксированные аргументы; arbitrary Git commands, push/pull/fetch/merge/rebase/reset/clean/restore/stash и произвольные pathspec не предоставляются.
 - RunCommandTool передаёт команду в ExecutionBackend; Backend запускает её в Docker-контейнере с явно смонтированным Workspace.
 - RunTestsTool использует тот же путь исполнения через RunCommandTool и ExecutionBackend.
 - ToolExecutor отвечает за диспетчеризацию, подтверждения и запись выполнения; ExecutionBackend отвечает за запуск команды в Docker и очистку контейнера.
 - Docker-изоляция снижает доступ контейнера к хосту, но не является доказательством абсолютной защиты от всех способов выхода из контейнера.
 - Список перехватываемых исключений ограничен конкретными типами; обработка неожиданных исключений отмечена как технический долг.
 
-### 3.6.2 GitTool — самостоятельный read-only инструмент (подэтап 9.Б)
+### 3.6.2 GitTool — read-only диагностика и подтверждённые мутации (подэтапы 9.Б и 9.Г)
 
 **Файл:** `src/local_agent/execution/tools/git.py`  
 **Внутренний runner:** `src/local_agent/execution/tools/_windows_runner.py`  
-**Тесты:** `test/test_git_tool.py`, `test/test_windows_runner.py`, `test/integration/test_git_tool_windows.py`.
+**Тесты:** `test/test_git_tool.py`, `test/test_windows_runner.py`, `test/integration/test_git_tool_windows.py`, `test/integration/test_git_mutations_windows.py`.
 
-Назначение: читать состояние локального Git-репозитория, корень которого совпадает с `Workspace.root`. GitTool запускает установленный `git.exe` непосредственно на Windows-хосте; Docker ExecutionBackend для этих операций не используется.
+Назначение: читать состояние локального Git-репозитория и выполнять три строго ограниченные изменяющие операции в репозитории, корень которого совпадает с `Workspace.root`. GitTool запускает установленный `git.exe` непосредственно на Windows-хосте; Docker ExecutionBackend для этих операций не используется.
 
 Основной контракт:
 
 - `GitTool(workspace: Workspace, *, timeout_seconds: float = 15.0, max_output_size: int = MAX_OUTPUT_SIZE, runner: Runner | None = None)`.
 - При создании проверяет тип Workspace, допустимость timeout/лимита вывода, наличие Git через `shutil.which("git")` и совпадение корня репозитория с `Workspace.root`.
-- Публичные операции только читают репозиторий:
+- Read-only операции:
   - `status() -> GitStatus`;
   - `branch() -> str | None`;
   - `head() -> str`;
@@ -425,6 +430,10 @@ Git-действия отображаются на методы переданн
   - `diff(paths: tuple[str, ...] | list[str] = ()) -> str`;
   - `staged_diff(paths: tuple[str, ...] | list[str] = ()) -> str`;
   - `changed_files() -> tuple[str, ...]`.
+  - `prepare_mutation(operation, parameters, previous_stage_receipt=None) -> tuple[dict, dict]` — нормализация параметров, snapshot и проверка preconditions до approval;
+  - `capture_mutation_snapshot(...)` — повторный snapshot без преждевременного отклонения изменившегося состояния;
+  - `mutation_lock()` — контекст per-repository lock;
+  - внутренний `_execute_approved_mutation(...)` — фиксированная команда и postcondition после проверки approval.
 - `GitStatus` содержит raw porcelain v2, текущую ветку (или None для detached HEAD), HEAD и записи статуса.
 - `GitBranch` содержит имя, commit SHA и признак текущей ветки.
 - `GitCommit` содержит SHA, автора, дату и subject.
@@ -435,7 +444,13 @@ Git-действия отображаются на методы переданн
 
 - Git запускается без shell; executable определяется через `shutil.which`.
 - Аргументы формируются внутри GitTool; произвольная команда и произвольный shell-вызов не предоставляются.
-- Перед каждой подкомандой передаётся `--literal-pathspecs`; пути отделяются через `--` и проверяются через `Workspace.resolve_path()`.
+- Перед каждой подкомандой передаётся `--literal-pathspecs`; пути отделяются через `--` и проверяются через `Workspace.resolve_path()`. Для snapshot status используется `--no-optional-locks`, `core.fsmonitor=false` применяется ко всем вызовам, чтобы не запускать внешний fsmonitor и не обновлять index до approval.
+- Snapshot включает canonical workspace root и common Git directory, branch/HEAD, NUL-safe porcelain v2, index file и staged tree fingerprints, staged/unstaged diff fingerprints, tracked/untracked/conflict entries, fingerprints выбранных и наблюдаемых dirty-файлов, filter attributes и состояние Git hooks. Переопределение `GIT_INDEX_FILE` отклоняется.
+- Пути для `git_stage`/`git_commit` — непустой уникальный список относительных файлов; абсолютные пути, traversal, NUL, wildcard и pathspec magic отклоняются.
+- `git_create_and_switch_branch` допускается только при существующем HEAD, attached branch и полностью чистом состоянии; команда — `git switch -c`.
+- `git_stage` допускается только с чистым исходным index или с index, совпадающим с receipt предыдущего успешного одобренного stage; команда — `git add -- <explicit paths>`. Внешние clean filters блокируются. Postcondition проверяет, что изменились только разрешённые index entries и файлы не изменились.
+- `git_commit` требует receipt предыдущего stage, точного списка staged paths, отсутствия unstaged/untracked/conflict изменений и совпадения index fingerprint; postcondition проверяет новый HEAD, parent и точный commit tree. Все активные Git hooks и настроенный `core.hooksPath` блокируют branch/commit; commit signing отключён фиксированным аргументом. Автоматического rollback нет.
+- Per-repository lock keyed by canonical common Git directory сериализует мутации одного репозитория, включая linked worktrees, внутри процесса local-agent. Внешние процессы этот lock не соблюдают; абсолютная атомарность между последней проверкой и Git syscall не гарантируется.
 - Таймаут по умолчанию — 15 секунд, максимальный — 120 секунд.
 - Максимальный сохраняемый вывод ограничен `MAX_OUTPUT_SIZE` (см. константу runner); stdout и stderr читаются параллельно, остаток вычитывается с отбрасыванием после достижения лимита.
 - Timeout и ошибки запуска/runner преобразуются в типизированные ошибки GitTool.
@@ -448,7 +463,7 @@ Windows runner:
 - Reader threads обрабатывают stdout/stderr параллельно; timeout, отмена чтения и cleanup handles обрабатываются runner.
 - `ProcessResult` содержит stdout/stderr bytes, exit_code, timed_out и признаки усечения потоков.
 
-**Граница подэтапа 9.Б:** GitTool реализован как самостоятельный read-only компонент. Его регистрация в ToolExecutor и доступ через общий маршрут ToolExecutorAdapter реализованы в задаче LA-9C-01 (подэтап 9.В). Все изменяющие Git-операции и подтверждения относятся к 9.Г. Нельзя считать read-only интерфейс доказательством наличия write-операций.
+**Граница реализации:** read-only операции и их регистрация относятся к 9.Б/9.В; три изменяющие операции и их approval/snapshot flow добавлены в LA-9G-01 (9.Г). GitTool не предоставляет произвольных команд. ToolExecutorAdapter не содержит Git-специфичной логики.
 
 #### RunCommandTool — выполнение системных команд
 
@@ -1018,6 +1033,8 @@ ExecutionRecorder поддерживает несколько Execution для �
 | test/test_git_tool.py | Unit-тесты GitTool: проверка Workspace/repository, восьми read-only операций, параметров, результатов и ошибок. |
 | test/test_windows_runner.py | Unit-тесты Win32 runner: порядок запуска, Job Object, handle whitelist, reader lifecycle, timeout, ошибки API и cleanup. |
 | test/integration/test_git_tool_windows.py | Windows integration tests GitTool: реальные Git-репозитории, linked worktree, read-only snapshot и проверка отсутствия наследования постороннего handle. |
+| test/integration/test_git_mutations_windows.py | Windows integration tests трёх подтверждаемых Git-операций, changed snapshot, cancellation, SQLite receipt restart, фильтров, hooks, точного stage scope и commit postconditions. |
+| test/integration/test_git_mutations_windows.py | Windows integration tests трёх подтверждаемых Git-операций, changed snapshot, cancellation, точного stage scope и commit postconditions. |
 | test/test_run_command.py                                | Unit-тесты RunCommandTool: передача команды Backend, преобразование результата, ограничение вывода и обработка ошибок Backend.   |
 | test/test_run_tests.py                                   | Unit-тесты RunTestsTool: фиксированная команда pytest, преобразование результата и обработка ошибок RunCommandTool.              |
 | test/test_execution_backend.py                         | Unit-тесты ExecutionBackend: формирование команды Docker, валидация параметров, обработка ошибок, тайм-аут и очистка контейнера. |
