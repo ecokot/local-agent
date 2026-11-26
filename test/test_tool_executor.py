@@ -60,6 +60,7 @@ class FakeGitTool:
         if operation == "git_stage":
             result["_stage_receipt"] = {
                 "repository_root": "fake",
+                "common_git_dir": "fake-common",
                 "head": "fake-head",
                 "branch": "fake-branch",
                 "index_fingerprint": "fake-index",
