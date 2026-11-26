@@ -706,7 +706,7 @@ def test_commit_blocks_tilde_expanded_hooks_path_before_approval(
     env = mutation_environment
     repository = env["repository"]
     target = repository / "tilde-hook-protected.txt"
-    target.write_text("staged content\\n", encoding="utf-8")
+    target.write_text("staged content\n", encoding="utf-8")
     staged = _approve_and_resume(
         env, "git_stage", {"paths": ["tilde-hook-protected.txt"]}
     )
@@ -726,7 +726,7 @@ def test_commit_blocks_tilde_expanded_hooks_path_before_approval(
     )
     hook = hooks / "pre-commit"
     hook.write_text(
-        "#!/bin/sh\\necho executed > hook-ran.txt\\nexit 1\\n",
+        "#!/bin/sh\necho executed > hook-ran.txt\nexit 1\n",
         encoding="utf-8",
     )
     effective_hooks = os.path.abspath(
