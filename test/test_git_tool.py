@@ -26,17 +26,17 @@ class FakeRunner:
             output = self.root.encode()
         elif command[0] == "status":
             output = b"# branch.oid abc123\0# branch.head main\0? new file.txt\0"
-        elif arguments[1:] == ("branch", "--show-current"):
+        elif command == ("branch", "--show-current"):
             output = b"main\n"
-        elif arguments[1:] == ("rev-parse", "--verify", "HEAD"):
+        elif command == ("rev-parse", "--verify", "HEAD"):
             output = b"abc123\n"
-        elif arguments[1] == "for-each-ref":
+        elif command[0] == "for-each-ref":
             output = b"main\tabc123\t*\n"
-        elif arguments[1] == "log":
+        elif command[0] == "log":
             output = b"abc123\x00Author\x002026-01-01T00:00:00+00:00\x00subject\x00"
-        elif arguments[1:4] == ("diff", "--name-only", "-z"):
+        elif command[:3] == ("diff", "--name-only", "-z"):
             output = b"tracked file.txt\0"
-        elif arguments[1:3] == ("ls-files", "--others"):
+        elif command[:2] == ("ls-files", "--others"):
             output = b"new file.txt\0"
         else:
             output = b""
