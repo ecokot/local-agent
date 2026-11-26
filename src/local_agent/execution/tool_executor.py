@@ -192,6 +192,11 @@ class ToolExecutor:
         )
 
         if validation_error is not None:
+            if tool_name.startswith("git_"):
+                return self._record_validation_failure(
+                    task_id,
+                    validation_error,
+                )
             return self._failed(validation_error)
 
         validation_error = self._validate_git_parameters(
@@ -199,7 +204,10 @@ class ToolExecutor:
             parameters,
         )
         if validation_error is not None:
-            return self._failed(validation_error)
+            return self._record_validation_failure(
+                task_id,
+                validation_error,
+            )
 
         if definition.requires_approval:
             try:
@@ -362,6 +370,39 @@ class ToolExecutor:
                 return "Parameter 'paths' must be a list"
 
         return None
+
+    def _record_validation_failure(
+        self,
+        task_id: str,
+        error: str,
+    ) -> ToolExecutionResult:
+        try:
+            execution_id = self._execution_recorder.start_execution(task_id)
+        except ExecutionRecorderError as recorder_error:
+            return self._failed(
+                f"Parameter validation failed: {error}. "
+                "Could not start execution record: "
+                f"{recorder_error}"
+            )
+
+        try:
+            self._execution_recorder.fail_execution(execution_id, error)
+        except ExecutionRecorderError as recorder_error:
+            return ToolExecutionResult(
+                status=ToolExecutionStatus.FAILED,
+                execution_id=execution_id,
+                error=(
+                    f"Parameter validation failed: {error}. "
+                    "Additionally, validation failure could not be "
+                    f"recorded: {recorder_error}"
+                ),
+            )
+
+        return ToolExecutionResult(
+            status=ToolExecutionStatus.FAILED,
+            execution_id=execution_id,
+            error=error,
+        )
 
     @staticmethod
     def _failed(error: str) -> ToolExecutionResult:
