@@ -98,6 +98,37 @@ def mutation_environment(tmp_path, monkeypatch):
     state_manager.close()
 
 
+
+def _reopen_execution_services(environment, tmp_path):
+    environment["recorder"].close()
+    environment["state"].close()
+    state_manager = StateManager(tmp_path / "state.db")
+    recorder = ExecutionRecorder(
+        database_path=tmp_path / "state.db",
+        trace_directory=tmp_path / "traces",
+    )
+    approval_manager = ApprovalManager(
+        connection=state_manager.connection,
+        state_manager=state_manager,
+    )
+    executor = ToolExecutor(
+        approval_manager=approval_manager,
+        list_directory=_UnusedTool(),
+        read_file=_UnusedTool(),
+        create_file=_UnusedTool(),
+        write_file=_UnusedTool(),
+        get_diff=_UnusedTool(),
+        run_command=_UnusedTool(),
+        run_tests=_UnusedTool(),
+        git_tool=environment["git"],
+        execution_recorder=recorder,
+    )
+    environment["state"] = state_manager
+    environment["recorder"] = recorder
+    environment["approval"] = approval_manager
+    environment["executor"] = executor
+
+
 def _approve_and_resume(environment, action: str, parameters: dict):
     executor = environment["executor"]
     pending = executor.execute(environment["task_id"], action, parameters)
@@ -237,6 +268,37 @@ def test_stage_can_extend_only_its_previous_approved_index(mutation_environment)
         env["git_executable"], repository, "status", "--porcelain"
     ) == b""
 
+
+
+
+def test_stage_receipt_survives_sqlite_and_executor_restart(
+    mutation_environment, tmp_path
+):
+    env = mutation_environment
+    repository = env["repository"]
+    (repository / "first.txt").write_text("one\n", encoding="utf-8")
+    first = _approve_and_resume(
+        env, "git_stage", {"paths": ["first.txt"]}
+    )
+    assert first.status == ToolExecutionStatus.SUCCEEDED
+
+    _reopen_execution_services(env, tmp_path)
+    (repository / "second.txt").write_text("two\n", encoding="utf-8")
+    second = _approve_and_resume(
+        env, "git_stage", {"paths": ["second.txt"]}
+    )
+    assert second.status == ToolExecutionStatus.SUCCEEDED
+    assert second.result["staged_paths"] == ["first.txt", "second.txt"]
+
+    committed = _approve_and_resume(
+        env,
+        "git_commit",
+        {"message": "Commit after restart", "paths": ["first.txt", "second.txt"]},
+    )
+    assert committed.status == ToolExecutionStatus.SUCCEEDED
+    assert _git(
+        env["git_executable"], repository, "status", "--porcelain"
+    ) == b""
 
 
 def test_stage_does_not_stage_an_unselected_untracked_file(mutation_environment):
