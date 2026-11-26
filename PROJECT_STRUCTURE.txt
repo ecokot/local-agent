@@ -1,7 +1,7 @@
-ЭТАП: Ревизия процесса разработки (PR #14, ожидает приёмки)
-КОММИТ: 2f26120
-ДАТА: 2026-11-26
-ИСТОЧНИК: Git tree (tracked files only; local/secret patterns excluded)
+ЭТАП: Ревизия процесса разработки — PR #14
+КОММИТ: fd819c0
+ДАТА: 2026-11-26 10:10:14
+ИСТОЧНИК: git ls-files (tracked files only)
 
 СТРУКТУРА ПРОЕКТА
 local-agent
@@ -106,10 +106,10 @@ local-agent
 |   \--- test_write_file.py
 +--- .gitignore
 +--- .python-version
-+--- MODULE_CONTRACTS.md
-+--- PROJECT_STRUCTURE.txt
-+--- README.md
 +--- check_model.py
++--- MODULE_CONTRACTS.md
 +--- plan.MD
++--- PROJECT_STRUCTURE.txt
 +--- pyproject.toml
++--- README.md
 \--- uv.lock
