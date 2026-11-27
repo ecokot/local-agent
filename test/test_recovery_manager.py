@@ -3,6 +3,7 @@ import sqlite3
 import pytest
 
 from local_agent.agents.stubs import StubExecutor, StubPlanner, StubReviewer
+from local_agent.agents.tool_executor_adapter import ToolExecutorAdapter
 from local_agent.execution.tool_executor import ToolExecutor
 from local_agent.execution.tools.run_command import RunCommandTool
 from local_agent.execution.tools.run_tests import RunTestsTool
@@ -571,6 +572,7 @@ def test_recovery_does_not_invoke_agents_or_tools(
     monkeypatch.setattr(StubPlanner, "create_plan", fail_if_called)
     monkeypatch.setattr(StubPlanner, "revise_plan", fail_if_called)
     monkeypatch.setattr(StubExecutor, "execute", fail_if_called)
+    monkeypatch.setattr(ToolExecutorAdapter, "execute", fail_if_called)
     monkeypatch.setattr(StubReviewer, "review", fail_if_called)
     monkeypatch.setattr(ToolExecutor, "execute", fail_if_called)
     monkeypatch.setattr(RunCommandTool, "execute", fail_if_called)
