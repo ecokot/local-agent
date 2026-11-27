@@ -130,3 +130,50 @@ def test_main_does_not_start_ui_when_recovery_fails(
         local_agent.main()
 
     assert interface_constructed is False
+
+
+
+def test_main_closes_recorder_when_recovery_fails(
+    monkeypatch,
+    tmp_path,
+):
+    created_recorders = []
+    original_recorder = local_agent.ExecutionRecorder
+    _set_project_root(monkeypatch, tmp_path, local_agent)
+    _stub_application_dependencies(monkeypatch, local_agent)
+
+    class TrackingExecutionRecorder(original_recorder):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.closed = False
+            created_recorders.append(self)
+
+        def close(self):
+            self.closed = True
+            super().close()
+
+    class FailingRecoveryManager:
+        def __init__(self, **kwargs):
+            pass
+
+        def recover(self):
+            raise RecoveryError("Task task-789 has inconsistent state")
+
+    monkeypatch.setattr(
+        local_agent,
+        "ExecutionRecorder",
+        TrackingExecutionRecorder,
+    )
+    monkeypatch.setattr(
+        local_agent,
+        "RecoveryManager",
+        FailingRecoveryManager,
+    )
+
+    with pytest.raises(RecoveryError, match="task-789"):
+        local_agent.main()
+
+    assert len(created_recorders) == 1
+    assert created_recorders[0].closed is True
+    with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+        created_recorders[0]._connection.execute("SELECT 1")
