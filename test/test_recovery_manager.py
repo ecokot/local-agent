@@ -415,23 +415,23 @@ def test_recover_returns_classification_for_multiple_tasks(components):
     } == {
         created_task: (
             TaskStatus.CREATED,
-            "Task is still CREATED without a pending approval; its "
-            "execution outcome cannot be inferred.",
+            ("Task is still CREATED without a pending approval; its "
+            "execution outcome cannot be inferred."),
         ),
         running_without_execution: (
             TaskStatus.RUNNING,
-            "Task is RUNNING but has no recorded executions; "
-            "its outcome cannot be inferred.",
+            ("Task is RUNNING but has no recorded executions; "
+            "its outcome cannot be inferred."),
         ),
         running_failed: (
             TaskStatus.RUNNING,
-            "The latest execution is FAILED; a failed attempt does "
-            "not prove that the task itself is terminal.",
+            ("The latest execution is FAILED; a failed attempt does "
+            "not prove that the task itself is terminal."),
         ),
         running_incomplete: (
             TaskStatus.RUNNING,
-            "The latest execution is still RUNNING; its external "
-            "effect may be incomplete or uncertain.",
+            ("The latest execution is still RUNNING; its external "
+            "effect may be incomplete or uncertain."),
         ),
     }
     assert len(
