@@ -1,14 +1,15 @@
-
 from pathlib import Path
 
 from local_agent.agents.stubs import get_stub_agents
 from local_agent.approval_manager import ApprovalManager
 from local_agent.execution.backend import ExecutionBackend
+from local_agent.execution.recorder import ExecutionRecorder
 from local_agent.execution.tools.run_command import RunCommandTool
 from local_agent.execution.tools.run_tests import RunTestsTool
 from local_agent.execution.verification import VerificationExecutor
 from local_agent.execution.workspace import Workspace
 from local_agent.orchestrator import Orchestrator
+from local_agent.recovery_manager import RecoveryManager
 from local_agent.state_manager import StateManager
 from local_agent.user_interface import UserInterface
 
@@ -17,6 +18,7 @@ def main() -> None:
     project_root = Path(__file__).resolve().parents[2]
     data_directory = project_root / "data"
     database_path = data_directory / "agent.db"
+    trace_directory = data_directory / "traces"
 
     data_directory.mkdir(parents=True, exist_ok=True)
 
@@ -26,7 +28,24 @@ def main() -> None:
             connection=state_manager.connection,
             state_manager=state_manager,
         ) as approval_manager,
+        ExecutionRecorder(
+            database_path,
+            trace_directory,
+        ) as execution_recorder,
     ):
+        recovery_result = RecoveryManager(
+            state_manager=state_manager,
+            execution_recorder=execution_recorder,
+            approval_manager=approval_manager,
+        ).recover()
+
+        for unresolved_task in recovery_result.unresolved_tasks:
+            print(
+                "Recovery requires attention: "
+                f"task {unresolved_task.task_id} remains "
+                f"{unresolved_task.status}: {unresolved_task.reason}"
+            )
+
         planner, executor, reviewer = get_stub_agents()
         workspace = Workspace(project_root)
         run_command_tool = RunCommandTool(
