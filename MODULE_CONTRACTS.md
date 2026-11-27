@@ -5,7 +5,7 @@
 > **Проект:** `local-agent`
 > **Репозиторий:** https://github.com/ecokot/local-agent
 > **Основная ветка:** `main`
-> **Коммит проверенной версии кода и тестов:** `feaff4aaf93d6d8402d08d8b7970af5a6ef98dbd`
+> **Коммит проверенной версии кода и тестов:** `f9fcd401fa3fad02057914d8808b6dcf08fc2dcb`
 > **Актуальность:** 2026-11-27
 > **Среда:** Windows 11, Python 3.12+, `uv`, PowerShell, PyCharm
 >
