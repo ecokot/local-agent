@@ -3,7 +3,6 @@ import sqlite3
 import pytest
 
 import local_agent
-from local_agent.execution.recorder import ExecutionRecorder
 from local_agent.recovery_manager import (
     RecoveryError,
     RecoveryResult,
