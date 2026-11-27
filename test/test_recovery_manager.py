@@ -4,12 +4,17 @@ import pytest
 
 from local_agent.agents.stubs import StubExecutor, StubPlanner, StubReviewer
 from local_agent.agents.tool_executor_adapter import ToolExecutorAdapter
-from local_agent.execution.tool_executor import ToolExecutor
-from local_agent.execution.tools.run_command import RunCommandTool
-from local_agent.execution.tools.run_tests import RunTestsTool
-
 from local_agent.approval_manager import ApprovalManager
 from local_agent.execution.recorder import ExecutionRecorder
+from local_agent.execution.tool_executor import ToolExecutor
+from local_agent.execution.tools.create_file import CreateFileTool
+from local_agent.execution.tools.get_diff import GetDiffTool
+from local_agent.execution.tools.git import GitTool
+from local_agent.execution.tools.list_directory import ListDirectoryTool
+from local_agent.execution.tools.read_file import ReadFileTool
+from local_agent.execution.tools.run_command import RunCommandTool
+from local_agent.execution.tools.run_tests import RunTestsTool
+from local_agent.execution.tools.write_file import WriteFileTool
 from local_agent.models import ApprovalStatus
 from local_agent.recovery_manager import RecoveryError, RecoveryManager
 from local_agent.state_manager import StateManager, TaskStatus
@@ -575,8 +580,32 @@ def test_recovery_does_not_invoke_agents_or_tools(
     monkeypatch.setattr(ToolExecutorAdapter, "execute", fail_if_called)
     monkeypatch.setattr(StubReviewer, "review", fail_if_called)
     monkeypatch.setattr(ToolExecutor, "execute", fail_if_called)
-    monkeypatch.setattr(RunCommandTool, "execute", fail_if_called)
-    monkeypatch.setattr(RunTestsTool, "execute", fail_if_called)
+
+    for tool_class in (
+        CreateFileTool,
+        GetDiffTool,
+        ListDirectoryTool,
+        ReadFileTool,
+        RunCommandTool,
+        RunTestsTool,
+        WriteFileTool,
+    ):
+        monkeypatch.setattr(tool_class, "execute", fail_if_called)
+
+    for method_name in (
+        "status",
+        "branch",
+        "head",
+        "branches",
+        "log",
+        "diff",
+        "staged_diff",
+        "changed_files",
+        "prepare_mutation",
+        "capture_mutation_snapshot",
+        "mutation_lock",
+    ):
+        monkeypatch.setattr(GitTool, method_name, fail_if_called)
 
     execution_id = recorder.start_execution(running_task)
     recorder.finish_execution(execution_id)
