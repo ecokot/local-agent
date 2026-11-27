@@ -1,7 +1,7 @@
-ЭТАП: Этап 9 завершён; этап 10 не начат
-КОММИТ: fa5c740
-ДАТА: 2026-11-27 01:18:14
-ИСТОЧНИК: git ls-files (tracked files only)
+ЭТАП: 10.A принят; 10.B следующий
+КОММИТ: 574ced5
+ДАТА: 2026-11-27
+ИСТОЧНИК: GitHub tracked-file inventory after merge PR #30 (workflow removed)
 
 СТРУКТУРА ПРОЕКТА
 local-agent
@@ -19,6 +19,9 @@ local-agent
 |   |       +--- LA-9B-02.md
 |   |       +--- LA-9D-01.md
 |   |       \--- LA-9G-01.md
+|   +--- stage-10
+|   |   \--- report
+|   |       \--- LA-10A-01.md
 |   +--- templates
 |   |   +--- REPORT_TEMPLATE.md
 |   |   \--- TASK_TEMPLATE.md
@@ -102,6 +105,7 @@ local-agent
 |   +--- test_plan_models.py
 |   +--- test_read_file.py
 |   +--- test_recovery_manager.py
+|   +--- test_application_startup.py
 |   +--- test_run_command.py
 |   +--- test_run_tests.py
 |   +--- test_state_manager.py
