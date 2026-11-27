@@ -2,6 +2,11 @@ import sqlite3
 
 import pytest
 
+from local_agent.agents.stubs import StubExecutor, StubPlanner, StubReviewer
+from local_agent.execution.tool_executor import ToolExecutor
+from local_agent.execution.tools.run_command import RunCommandTool
+from local_agent.execution.tools.run_tests import RunTestsTool
+
 from local_agent.approval_manager import ApprovalManager
 from local_agent.execution.recorder import ExecutionRecorder
 from local_agent.models import ApprovalStatus
@@ -550,3 +555,30 @@ def test_recovery_does_not_change_terminal_tasks(components):
         task_id: state_manager.get_state(task_id)
         for task_id in terminal_statuses
     } == terminal_statuses
+
+
+
+def test_recovery_does_not_invoke_agents_or_tools(
+    monkeypatch,
+    components,
+    running_task,
+):
+    _, recorder, recovery = components
+
+    def fail_if_called(*args, **kwargs):
+        pytest.fail("Recovery must not invoke agents or execution tools")
+
+    monkeypatch.setattr(StubPlanner, "create_plan", fail_if_called)
+    monkeypatch.setattr(StubPlanner, "revise_plan", fail_if_called)
+    monkeypatch.setattr(StubExecutor, "execute", fail_if_called)
+    monkeypatch.setattr(StubReviewer, "review", fail_if_called)
+    monkeypatch.setattr(ToolExecutor, "execute", fail_if_called)
+    monkeypatch.setattr(RunCommandTool, "execute", fail_if_called)
+    monkeypatch.setattr(RunTestsTool, "execute", fail_if_called)
+
+    execution_id = recorder.start_execution(running_task)
+    recorder.finish_execution(execution_id)
+
+    result = recovery.recover()
+
+    assert result.recovered_task_ids == (running_task,)
