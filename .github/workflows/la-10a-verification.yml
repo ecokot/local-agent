@@ -1,6 +1,7 @@
 name: LA-10A Developer verification
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - stage-10a-automatic-recovery
