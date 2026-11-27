@@ -513,9 +513,40 @@ def test_recover_second_call_does_not_report_recovered_task_again(
     execution_id = recorder.start_execution(running_task)
     recorder.finish_execution(execution_id)
 
+    executions_before = recorder.get_executions_for_task(running_task)
+    events_before = recorder.get_events(execution_id)
+
     first_result = recovery.recover()
     second_result = recovery.recover()
 
     assert first_result.recovered_task_ids == (running_task,)
     assert second_result.recovered_task_ids == ()
     assert state_manager.get_state(running_task) == TaskStatus.SUCCEEDED
+    assert recorder.get_executions_for_task(running_task) == executions_before
+    assert recorder.get_events(execution_id) == events_before
+
+
+
+def test_recovery_does_not_change_terminal_tasks(components):
+    state_manager, _, recovery = components
+
+    terminal_statuses = {}
+    for status in (
+        TaskStatus.SUCCEEDED,
+        TaskStatus.FAILED,
+        TaskStatus.CANCELLED,
+    ):
+        task_id = state_manager.create_task(
+            f"Already terminal: {status.value}"
+        )
+        state_manager.transition(task_id, TaskStatus.RUNNING)
+        state_manager.transition(task_id, status)
+        terminal_statuses[task_id] = status
+
+    result = recovery.recover()
+
+    assert result.recovered_task_ids == ()
+    assert {
+        task_id: state_manager.get_state(task_id)
+        for task_id in terminal_statuses
+    } == terminal_statuses
