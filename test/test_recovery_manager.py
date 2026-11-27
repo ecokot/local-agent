@@ -613,3 +613,39 @@ def test_recovery_does_not_invoke_agents_or_tools(
     result = recovery.recover()
 
     assert result.recovered_task_ids == (running_task,)
+
+
+def test_recovery_keeps_prior_success_when_later_task_history_is_invalid(
+    components,
+):
+    state_manager, recorder, recovery = components
+
+    successful_task = state_manager.create_task("Successful task")
+    state_manager.transition(successful_task, TaskStatus.RUNNING)
+    successful_execution = recorder.start_execution(successful_task)
+    recorder.finish_execution(successful_execution)
+
+    invalid_task = state_manager.create_task("Task with invalid history")
+    state_manager.transition(invalid_task, TaskStatus.RUNNING)
+    invalid_execution = recorder.start_execution(invalid_task)
+    recorder.finish_execution(invalid_execution)
+
+    recorder._connection.execute(
+        """
+        UPDATE execution_events
+        SET event_type = 'INVALID_EVENT'
+        WHERE execution_id = ?
+          AND event_type = 'EXECUTION_FINISHED'
+        """,
+        (invalid_execution,),
+    )
+    recorder._connection.commit()
+
+    with pytest.raises(
+        RecoveryError,
+        match=f"Task {invalid_task}: Unknown event type",
+    ):
+        recovery.recover()
+
+    assert state_manager.get_state(successful_task) == TaskStatus.SUCCEEDED
+    assert state_manager.get_state(invalid_task) == TaskStatus.RUNNING
