@@ -251,7 +251,11 @@
 **Файл:** src/local_agent/recovery_manager.py
 **Тесты:** test/test_recovery_manager.py
 
-Публичный тип: RecoveryError(Exception) — ошибка противоречивых данных восстановления.
+Публичные типы:
+
+- RecoveryError(Exception) — ошибка противоречивых данных восстановления.
+- UnresolvedTask — неизменяемая диагностика задачи, исход которой нельзя безопасно определить: task_id, исходный TaskStatus и причина.
+- RecoveryResult — неизменяемый итог восстановления с кортежами recovered_task_ids, waiting_for_approval_task_ids и unresolved_tasks.
 
 Конструктор:
 
@@ -259,7 +263,7 @@
 
 Публичный метод:
 
-- recover() -> None
+- recover() -> RecoveryResult
 
 Внутренний метод:
 
@@ -267,25 +271,25 @@
 
 Фактический алгоритм:
 
-1. Получает задачи из StateManager.
-2. Для WAITING_FOR_APPROVAL проверяет, что есть хотя бы один PENDING-запрос. Если запросов нет — поднимает RecoveryError.
-3. Для задач, не находящихся в RUNNING или WAITING_FOR_APPROVAL, ничего не делает.
-4. Для RUNNING проверяет отсутствие PENDING-подтверждений.
-5. Получает связанные Execution из ExecutionRecorder.
-6. Если Execution отсутствуют, оставляет задачу без изменений. Это допустимо, поскольку Orchestrator пока не интегрирован с ExecutionRecorder.
-7. Проверяет историю событий каждого Execution: ровно одно начальное событие, допустимые типы событий, согласованность терминального события со статусом.
-8. Последний успешный Execution позволяет перевести задачу в SUCCEEDED.
-9. Последний FAILED или RUNNING Execution не переводит задачу в FAILED: неудачная попытка сама по себе не означает окончательный провал задачи.
+1. Получает задачи из StateManager и проверяет pending approvals для каждой задачи независимо от её статуса.
+2. WAITING_FOR_APPROVAL с одним или несколькими PENDING-запросами включается в waiting_for_approval_task_ids; отсутствие PENDING-запросов — RecoveryError.
+3. Наличие PENDING approval у любого статуса, кроме WAITING_FOR_APPROVAL, — RecoveryError.
+4. CREATED без PENDING approval включается в unresolved_tasks; статус не меняется.
+5. Для RUNNING получает связанные Execution из ExecutionRecorder. Отсутствие Execution приводит к unresolved-диагностике без изменения статуса.
+6. Проверяет историю событий каждого Execution: ровно одно начальное событие, допустимые типы событий, согласованность терминального события со статусом. RecoveryError дополняется task_id проблемной задачи.
+7. Последний успешный Execution позволяет перевести задачу в SUCCEEDED; её task_id включается в recovered_task_ids.
+8. Последний FAILED или RUNNING Execution приводит к unresolved-диагностике; статус задачи не меняется.
+9. Остальные терминальные статусы не меняются, если у задачи нет противоречивых pending approvals.
 
 Ограничения:
 
-- recover не запускает повторное выполнение.
-- recover не возобновляет незавершённый код или внешний инструмент.
-- recover не восстанавливает задачи в CREATED, FAILED, SUCCEEDED или CANCELLED.
-- Для RUNNING без Execution восстановление намеренно ничего не делает.
-- RecoveryManager не вызывается автоматически при запуске UserInterface или Orchestrator.
+- recover не запускает повторное выполнение и не возобновляет незавершённый код или внешний инструмент.
+- Неопределённые CREATED/RUNNING задачи не переводятся автоматически в терминальные статусы.
+- Повторный вызов не дублирует переходы, approvals или события; уже терминальные задачи не включаются повторно в recovered_task_ids.
+- RecoveryManager вызывается приложением при запуске до UserInterface.run(); сам Orchestrator им не управляет.
+- Startup создаёт отдельный ExecutionRecorder для того же файла SQLite, который использует StateManager/ApprovalManager; исполнительный ToolExecutor продолжает использовать собственный экземпляр Recorder.
 
-Ошибки: RecoveryError при несогласованной истории, неизвестных событиях, отсутствии ожидающего подтверждения или наличии PENDING-подтверждений у RUNNING-задачи. Ошибки перехода StateManager оборачиваются в RecoveryError.
+Ошибки: RecoveryError при несогласованной истории, неизвестных событиях, отсутствии ожидающего подтверждения, наличии PENDING-подтверждений у неподходящего статуса или повреждённых execution records. Ошибки перехода StateManager оборачиваются в RecoveryError.
 
 ### 3.6 ExecutionRecorder — журнал выполнений и трассировка
 
