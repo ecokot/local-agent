@@ -75,7 +75,7 @@
 - ModelClient и ModelRouter не вызываются Orchestrator.
 - ContextManager не используется Orchestrator или ModelClient автоматически.
 - ExecutionRecorder встроен в ToolExecutor, а не вызывается Orchestrator напрямую.
-- RecoveryManager существует отдельно и должен быть вызван приложением при восстановлении; автоматического запуска из Orchestrator/UserInterface нет.
+- RecoveryManager вызывается из startup-функции main() до создания и запуска UserInterface; сам Orchestrator не управляет восстановлением.
 - StubPlanner, StubExecutor и StubReviewer остаются тестовыми заглушками. StubExecutor — не единственный вариант Executor: ToolExecutorAdapter является реализацией контракта Executor для выполнения плана через инструменты.
 - Прогресс ToolExecutorAdapter хранится только в памяти процесса. Восстановление позиции и продолжение плана после перезапуска не реализованы. Approval отдельного Git-действия и stage receipt сохраняются в SQLite; повторный вызов ToolExecutor с тем же task_id/action/parameters может возобновить действие после перезапуска.
 
@@ -85,7 +85,7 @@
 
 | Файл | Назначение и контракт |
 |---|---|
-| src/local_agent/__init__.py | Маркер пакета. Самостоятельного прикладного API не добавляет. |
+| src/local_agent/__init__.py | Composition root приложения: main() создаёт хранилища и исполнительные компоненты, выполняет RecoveryManager до запуска UserInterface. |
 | src/local_agent/models/__init__.py | Пакет моделей. Сами контракты определены в отдельных файлах models/*.py. |
 | src/local_agent/execution/__init__.py | Публичный API подсистемы выполнения: ExecutionBackend, ExecutionResult, ExecutionBackendError, ExecutionRecorder и модели событий/результатов ToolExecutor. |
 | src/local_agent/execution/tools/git.py | GitTool с read-only диагностикой и тремя фиксированными изменяющими операциями, защищёнными snapshot approval, per-repository lock и проверками pre/postconditions. |
@@ -1001,7 +1001,7 @@ ExecutionRecorder поддерживает несколько Execution для �
 | Подтверждение привязано к действию и параметрам             | Реализовано в ApprovalManager через action_type и parameters_hash.                                                                                                                                                                                  |
 | Отмена идентичного действия окончательна                    | Реализована блокировка повторного запроса с теми же параметрами после CANCELLED.                                                                                                                                                                    |
 | Рискованные действия требуют подтверждения Python           | Реализовано в исполнительной цепочке: ToolExecutorAdapter → ToolExecutor → ApprovalManager. create_file, write_file, run_command и run_tests требуют подтверждения; list_directory, read_file, get_diff и все восемь git_* действий выполняются без него.                 |
-| История выполнений используется при восстановлении          | ToolExecutor записывает каждый вызов инструмента через ExecutionRecorder; RecoveryManager отдельно проверяет сохранённую историю. Автоматический запуск RecoveryManager при старте не подключён.                                                     |
+| История выполнений используется при восстановлении          | ToolExecutor записывает каждый вызов инструмента через ExecutionRecorder; main() при старте открывает тот же SQLite-файл отдельным ExecutionRecorder и вызывает RecoveryManager до запуска UserInterface.                                                      |
 | Контекст и данные задачи не зависят от неявной истории чата | Целевое правило; ContextManager существует, но его сборка в единый контекст задачи ещё не интегрирована.                                                                                                                                            |
 | Не добавлять менеджеры и абстракции без необходимости       | Действующее архитектурное правило проекта, не машинно проверяемый инвариант.                                                                                                                                                                        |
 | Изоляция выполнения системных команд                        | RunCommandTool выполняет команды через ExecutionBackend в Docker с Workspace; RunTestsTool использует тот же путь через RunCommandTool. Docker integration tests проверяют фактическую работу Backend; сквозные тесты инструментов должны быть отражены после их добавления. |
@@ -1009,7 +1009,7 @@ ExecutionRecorder поддерживает несколько Execution для �
 ### 6.1 Известные разрывы интеграции
 
 1. Orchestrator не использует ModelClient/ModelRouter/ContextManager.
-2. RecoveryManager не вызывается автоматически при старте.
+2. RecoveryManager вызывается из main() при старте до UserInterface.run(); неопределённые задачи выводятся в консоль и не переводятся в терминальные статусы.
 3. ToolExecutorAdapter хранит прогресс выполнения только в памяти процесса; после перезапуска продолжить с ожидающего шага нельзя.
 4. Planner.revise_plan определён, но не участвует в цикле выполнения.
 5. Текущий цикл не включает автоматическое исправление замечаний Reviewer и повторный запуск Coder.
