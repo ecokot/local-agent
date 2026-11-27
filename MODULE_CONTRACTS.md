@@ -5,7 +5,7 @@
 > **Проект:** `local-agent`
 > **Репозиторий:** https://github.com/ecokot/local-agent
 > **Основная ветка:** `main`
-> **Коммит проверенной версии кода:** `fbedbab8c93bccf637b53f470bdd21b132797ec8`
+> **Коммит проверенной версии кода и тестов:** `f9fcd401fa3fad02057914d8808b6dcf08fc2dcb`
 > **Актуальность:** 2026-11-27
 > **Среда:** Windows 11, Python 3.12+, `uv`, PowerShell, PyCharm
 >
@@ -75,7 +75,7 @@
 - ModelClient и ModelRouter не вызываются Orchestrator.
 - ContextManager не используется Orchestrator или ModelClient автоматически.
 - ExecutionRecorder встроен в ToolExecutor, а не вызывается Orchestrator напрямую.
-- RecoveryManager существует отдельно и должен быть вызван приложением при восстановлении; автоматического запуска из Orchestrator/UserInterface нет.
+- RecoveryManager вызывается из startup-функции main() до создания и запуска UserInterface; сам Orchestrator не управляет восстановлением.
 - StubPlanner, StubExecutor и StubReviewer остаются тестовыми заглушками. StubExecutor — не единственный вариант Executor: ToolExecutorAdapter является реализацией контракта Executor для выполнения плана через инструменты.
 - Прогресс ToolExecutorAdapter хранится только в памяти процесса. Восстановление позиции и продолжение плана после перезапуска не реализованы. Approval отдельного Git-действия и stage receipt сохраняются в SQLite; повторный вызов ToolExecutor с тем же task_id/action/parameters может возобновить действие после перезапуска.
 
@@ -85,7 +85,7 @@
 
 | Файл | Назначение и контракт |
 |---|---|
-| src/local_agent/__init__.py | Маркер пакета. Самостоятельного прикладного API не добавляет. |
+| src/local_agent/__init__.py | Composition root приложения: main() создаёт хранилища и исполнительные компоненты, выполняет RecoveryManager до запуска UserInterface. |
 | src/local_agent/models/__init__.py | Пакет моделей. Сами контракты определены в отдельных файлах models/*.py. |
 | src/local_agent/execution/__init__.py | Публичный API подсистемы выполнения: ExecutionBackend, ExecutionResult, ExecutionBackendError, ExecutionRecorder и модели событий/результатов ToolExecutor. |
 | src/local_agent/execution/tools/git.py | GitTool с read-only диагностикой и тремя фиксированными изменяющими операциями, защищёнными snapshot approval, per-repository lock и проверками pre/postconditions. |
@@ -251,7 +251,11 @@
 **Файл:** src/local_agent/recovery_manager.py
 **Тесты:** test/test_recovery_manager.py
 
-Публичный тип: RecoveryError(Exception) — ошибка противоречивых данных восстановления.
+Публичные типы:
+
+- RecoveryError(Exception) — ошибка противоречивых данных восстановления.
+- UnresolvedTask — неизменяемая диагностика задачи, исход которой нельзя безопасно определить: task_id, исходный TaskStatus и причина.
+- RecoveryResult — неизменяемый итог восстановления с кортежами recovered_task_ids, waiting_for_approval_task_ids и unresolved_tasks.
 
 Конструктор:
 
@@ -259,7 +263,7 @@
 
 Публичный метод:
 
-- recover() -> None
+- recover() -> RecoveryResult
 
 Внутренний метод:
 
@@ -267,25 +271,25 @@
 
 Фактический алгоритм:
 
-1. Получает задачи из StateManager.
-2. Для WAITING_FOR_APPROVAL проверяет, что есть хотя бы один PENDING-запрос. Если запросов нет — поднимает RecoveryError.
-3. Для задач, не находящихся в RUNNING или WAITING_FOR_APPROVAL, ничего не делает.
-4. Для RUNNING проверяет отсутствие PENDING-подтверждений.
-5. Получает связанные Execution из ExecutionRecorder.
-6. Если Execution отсутствуют, оставляет задачу без изменений. Это допустимо, поскольку Orchestrator пока не интегрирован с ExecutionRecorder.
-7. Проверяет историю событий каждого Execution: ровно одно начальное событие, допустимые типы событий, согласованность терминального события со статусом.
-8. Последний успешный Execution позволяет перевести задачу в SUCCEEDED.
-9. Последний FAILED или RUNNING Execution не переводит задачу в FAILED: неудачная попытка сама по себе не означает окончательный провал задачи.
+1. Получает задачи из StateManager и проверяет pending approvals для каждой задачи независимо от её статуса.
+2. WAITING_FOR_APPROVAL с одним или несколькими PENDING-запросами включается в waiting_for_approval_task_ids; отсутствие PENDING-запросов — RecoveryError.
+3. Наличие PENDING approval у любого статуса, кроме WAITING_FOR_APPROVAL, — RecoveryError.
+4. CREATED без PENDING approval включается в unresolved_tasks; статус не меняется.
+5. Для RUNNING получает связанные Execution из ExecutionRecorder. Отсутствие Execution приводит к unresolved-диагностике без изменения статуса.
+6. Проверяет историю событий каждого Execution: ровно одно начальное событие, допустимые типы событий, согласованность терминального события со статусом. RecoveryError дополняется task_id проблемной задачи.
+7. Последний успешный Execution позволяет перевести задачу в SUCCEEDED; её task_id включается в recovered_task_ids.
+8. Последний FAILED или RUNNING Execution приводит к unresolved-диагностике; статус задачи не меняется.
+9. Остальные терминальные статусы не меняются, если у задачи нет противоречивых pending approvals.
 
 Ограничения:
 
-- recover не запускает повторное выполнение.
-- recover не возобновляет незавершённый код или внешний инструмент.
-- recover не восстанавливает задачи в CREATED, FAILED, SUCCEEDED или CANCELLED.
-- Для RUNNING без Execution восстановление намеренно ничего не делает.
-- RecoveryManager не вызывается автоматически при запуске UserInterface или Orchestrator.
+- recover не запускает повторное выполнение и не возобновляет незавершённый код или внешний инструмент.
+- Неопределённые CREATED/RUNNING задачи не переводятся автоматически в терминальные статусы.
+- Повторный вызов не дублирует переходы, approvals или события; уже терминальные задачи не включаются повторно в recovered_task_ids.
+- RecoveryManager вызывается приложением при запуске до UserInterface.run(); сам Orchestrator им не управляет.
+- Startup создаёт отдельный ExecutionRecorder для того же файла SQLite, который использует StateManager/ApprovalManager; исполнительный ToolExecutor продолжает использовать собственный экземпляр Recorder.
 
-Ошибки: RecoveryError при несогласованной истории, неизвестных событиях, отсутствии ожидающего подтверждения или наличии PENDING-подтверждений у RUNNING-задачи. Ошибки перехода StateManager оборачиваются в RecoveryError.
+Ошибки: RecoveryError при несогласованной истории, неизвестных событиях, отсутствии ожидающего подтверждения, наличии PENDING-подтверждений у неподходящего статуса или повреждённых execution records. Ошибки перехода StateManager оборачиваются в RecoveryError.
 
 ### 3.6 ExecutionRecorder — журнал выполнений и трассировка
 
@@ -997,7 +1001,7 @@ ExecutionRecorder поддерживает несколько Execution для �
 | Подтверждение привязано к действию и параметрам             | Реализовано в ApprovalManager через action_type и parameters_hash.                                                                                                                                                                                  |
 | Отмена идентичного действия окончательна                    | Реализована блокировка повторного запроса с теми же параметрами после CANCELLED.                                                                                                                                                                    |
 | Рискованные действия требуют подтверждения Python           | Реализовано в исполнительной цепочке: ToolExecutorAdapter → ToolExecutor → ApprovalManager. create_file, write_file, run_command и run_tests требуют подтверждения; list_directory, read_file, get_diff и все восемь git_* действий выполняются без него.                 |
-| История выполнений используется при восстановлении          | ToolExecutor записывает каждый вызов инструмента через ExecutionRecorder; RecoveryManager отдельно проверяет сохранённую историю. Автоматический запуск RecoveryManager при старте не подключён.                                                     |
+| История выполнений используется при восстановлении          | ToolExecutor записывает каждый вызов инструмента через ExecutionRecorder; main() при старте открывает тот же SQLite-файл отдельным ExecutionRecorder и вызывает RecoveryManager до запуска UserInterface.                                                      |
 | Контекст и данные задачи не зависят от неявной истории чата | Целевое правило; ContextManager существует, но его сборка в единый контекст задачи ещё не интегрирована.                                                                                                                                            |
 | Не добавлять менеджеры и абстракции без необходимости       | Действующее архитектурное правило проекта, не машинно проверяемый инвариант.                                                                                                                                                                        |
 | Изоляция выполнения системных команд                        | RunCommandTool выполняет команды через ExecutionBackend в Docker с Workspace; RunTestsTool использует тот же путь через RunCommandTool. Docker integration tests проверяют фактическую работу Backend; сквозные тесты инструментов должны быть отражены после их добавления. |
@@ -1005,7 +1009,7 @@ ExecutionRecorder поддерживает несколько Execution для �
 ### 6.1 Известные разрывы интеграции
 
 1. Orchestrator не использует ModelClient/ModelRouter/ContextManager.
-2. RecoveryManager не вызывается автоматически при старте.
+2. RecoveryManager вызывается из main() при старте до UserInterface.run(); неопределённые задачи выводятся в консоль и не переводятся в терминальные статусы.
 3. ToolExecutorAdapter хранит прогресс выполнения только в памяти процесса; после перезапуска продолжить с ожидающего шага нельзя.
 4. Planner.revise_plan определён, но не участвует в цикле выполнения.
 5. Текущий цикл не включает автоматическое исправление замечаний Reviewer и повторный запуск Coder.

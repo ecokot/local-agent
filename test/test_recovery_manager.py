@@ -2,8 +2,19 @@ import sqlite3
 
 import pytest
 
+from local_agent.agents.stubs import StubExecutor, StubPlanner, StubReviewer
+from local_agent.agents.tool_executor_adapter import ToolExecutorAdapter
 from local_agent.approval_manager import ApprovalManager
 from local_agent.execution.recorder import ExecutionRecorder
+from local_agent.execution.tool_executor import ToolExecutor
+from local_agent.execution.tools.create_file import CreateFileTool
+from local_agent.execution.tools.get_diff import GetDiffTool
+from local_agent.execution.tools.git import GitTool
+from local_agent.execution.tools.list_directory import ListDirectoryTool
+from local_agent.execution.tools.read_file import ReadFileTool
+from local_agent.execution.tools.run_command import RunCommandTool
+from local_agent.execution.tools.run_tests import RunTestsTool
+from local_agent.execution.tools.write_file import WriteFileTool
 from local_agent.models import ApprovalStatus
 from local_agent.recovery_manager import RecoveryError, RecoveryManager
 from local_agent.state_manager import StateManager, TaskStatus
@@ -363,3 +374,278 @@ def test_previous_successful_execution_is_inconsistent(
 
     with pytest.raises(RecoveryError):
         recovery.recover()
+
+
+
+def test_recover_returns_classification_for_multiple_tasks(components):
+    state_manager, recorder, recovery = components
+
+    created_task = state_manager.create_task("Created without approval")
+
+    running_without_execution = state_manager.create_task(
+        "Running without execution"
+    )
+    state_manager.transition(running_without_execution, TaskStatus.RUNNING)
+
+    running_failed = state_manager.create_task("Running after failed attempt")
+    state_manager.transition(running_failed, TaskStatus.RUNNING)
+    failed_execution = recorder.start_execution(running_failed)
+    recorder.fail_execution(failed_execution, "Attempt failed")
+
+    running_incomplete = state_manager.create_task(
+        "Running with incomplete execution"
+    )
+    state_manager.transition(running_incomplete, TaskStatus.RUNNING)
+    recorder.start_execution(running_incomplete)
+
+    waiting_task = state_manager.create_task("Waiting for two approvals")
+    state_manager.transition(waiting_task, TaskStatus.RUNNING)
+    first_approval = recovery.approval_manager.request_approval(
+        waiting_task,
+        "write_file",
+        {"path": "first.txt"},
+    )
+    second_approval = recovery.approval_manager.request_approval(
+        waiting_task,
+        "write_file",
+        {"path": "second.txt"},
+    )
+
+    successful_task = state_manager.create_task("Successfully completed")
+    state_manager.transition(successful_task, TaskStatus.RUNNING)
+    successful_execution = recorder.start_execution(successful_task)
+    recorder.finish_execution(successful_execution)
+
+    result = recovery.recover()
+
+    assert result.recovered_task_ids == (successful_task,)
+    assert result.waiting_for_approval_task_ids == (waiting_task,)
+    assert {
+        item.task_id: (item.status, item.reason)
+        for item in result.unresolved_tasks
+    } == {
+        created_task: (
+            TaskStatus.CREATED,
+            ("Task is still CREATED without a pending approval; its "
+            "execution outcome cannot be inferred."),
+        ),
+        running_without_execution: (
+            TaskStatus.RUNNING,
+            ("Task is RUNNING but has no recorded executions; "
+            "its outcome cannot be inferred."),
+        ),
+        running_failed: (
+            TaskStatus.RUNNING,
+            ("The latest execution is FAILED; a failed attempt does "
+            "not prove that the task itself is terminal."),
+        ),
+        running_incomplete: (
+            TaskStatus.RUNNING,
+            ("The latest execution is still RUNNING; its external "
+            "effect may be incomplete or uncertain."),
+        ),
+    }
+    assert len(
+        recovery.approval_manager.get_pending_approvals(waiting_task)
+    ) == 2
+    assert {
+        first_approval.approval_id,
+        second_approval.approval_id,
+    } == {
+        approval.approval_id
+        for approval in recovery.approval_manager.get_pending_approvals(
+            waiting_task
+        )
+    }
+
+
+def test_recover_reports_pending_approvals_on_non_waiting_task_as_error(
+    components,
+):
+    state_manager, _, recovery = components
+
+    task_id = state_manager.create_task("Inconsistent pending approval")
+    state_manager.transition(task_id, TaskStatus.RUNNING)
+    approval = recovery.approval_manager.request_approval(
+        task_id,
+        "write_file",
+        {"path": "example.txt"},
+    )
+
+    state_manager.connection.execute(
+        "UPDATE tasks SET status = ? WHERE task_id = ?",
+        (TaskStatus.CREATED.value, task_id),
+    )
+    state_manager.connection.commit()
+
+    with pytest.raises(
+        RecoveryError,
+        match=f"Task {task_id} has pending approvals while its status is CREATED",
+    ):
+        recovery.recover()
+
+    assert recovery.approval_manager.get_approval(
+        approval.approval_id
+    ).status == ApprovalStatus.PENDING
+
+
+def test_recovery_error_for_invalid_execution_includes_task_id(
+    components,
+    running_task,
+):
+    _, recorder, recovery = components
+
+    execution_id = recorder.start_execution(running_task)
+    recorder.finish_execution(execution_id)
+    recorder._connection.execute(
+        """
+        UPDATE execution_events
+        SET event_type = 'INVALID_EVENT'
+        WHERE execution_id = ?
+          AND event_type = 'EXECUTION_FINISHED'
+        """,
+        (execution_id,),
+    )
+    recorder._connection.commit()
+
+    with pytest.raises(
+        RecoveryError,
+        match=f"Task {running_task}: Unknown event type",
+    ):
+        recovery.recover()
+
+
+def test_recover_second_call_does_not_report_recovered_task_again(
+    components,
+    running_task,
+):
+    state_manager, recorder, recovery = components
+
+    execution_id = recorder.start_execution(running_task)
+    recorder.finish_execution(execution_id)
+
+    executions_before = recorder.get_executions_for_task(running_task)
+    events_before = recorder.get_events(execution_id)
+
+    first_result = recovery.recover()
+    second_result = recovery.recover()
+
+    assert first_result.recovered_task_ids == (running_task,)
+    assert second_result.recovered_task_ids == ()
+    assert state_manager.get_state(running_task) == TaskStatus.SUCCEEDED
+    assert recorder.get_executions_for_task(running_task) == executions_before
+    assert recorder.get_events(execution_id) == events_before
+
+
+
+def test_recovery_does_not_change_terminal_tasks(components):
+    state_manager, _, recovery = components
+
+    terminal_statuses = {}
+    for status in (
+        TaskStatus.SUCCEEDED,
+        TaskStatus.FAILED,
+        TaskStatus.CANCELLED,
+    ):
+        task_id = state_manager.create_task(
+            f"Already terminal: {status.value}"
+        )
+        state_manager.transition(task_id, TaskStatus.RUNNING)
+        state_manager.transition(task_id, status)
+        terminal_statuses[task_id] = status
+
+    result = recovery.recover()
+
+    assert result.recovered_task_ids == ()
+    assert {
+        task_id: state_manager.get_state(task_id)
+        for task_id in terminal_statuses
+    } == terminal_statuses
+
+
+
+def test_recovery_does_not_invoke_agents_or_tools(
+    monkeypatch,
+    components,
+    running_task,
+):
+    _, recorder, recovery = components
+
+    def fail_if_called(*args, **kwargs):
+        pytest.fail("Recovery must not invoke agents or execution tools")
+
+    monkeypatch.setattr(StubPlanner, "create_plan", fail_if_called)
+    monkeypatch.setattr(StubPlanner, "revise_plan", fail_if_called)
+    monkeypatch.setattr(StubExecutor, "execute", fail_if_called)
+    monkeypatch.setattr(ToolExecutorAdapter, "execute", fail_if_called)
+    monkeypatch.setattr(StubReviewer, "review", fail_if_called)
+    monkeypatch.setattr(ToolExecutor, "execute", fail_if_called)
+
+    for tool_class in (
+        CreateFileTool,
+        GetDiffTool,
+        ListDirectoryTool,
+        ReadFileTool,
+        RunCommandTool,
+        RunTestsTool,
+        WriteFileTool,
+    ):
+        monkeypatch.setattr(tool_class, "execute", fail_if_called)
+
+    for method_name in (
+        "status",
+        "branch",
+        "head",
+        "branches",
+        "log",
+        "diff",
+        "staged_diff",
+        "changed_files",
+        "prepare_mutation",
+        "capture_mutation_snapshot",
+        "mutation_lock",
+    ):
+        monkeypatch.setattr(GitTool, method_name, fail_if_called)
+
+    execution_id = recorder.start_execution(running_task)
+    recorder.finish_execution(execution_id)
+
+    result = recovery.recover()
+
+    assert result.recovered_task_ids == (running_task,)
+
+
+def test_recovery_keeps_prior_success_when_later_task_history_is_invalid(
+    components,
+):
+    state_manager, recorder, recovery = components
+
+    successful_task = state_manager.create_task("Successful task")
+    state_manager.transition(successful_task, TaskStatus.RUNNING)
+    successful_execution = recorder.start_execution(successful_task)
+    recorder.finish_execution(successful_execution)
+
+    invalid_task = state_manager.create_task("Task with invalid history")
+    state_manager.transition(invalid_task, TaskStatus.RUNNING)
+    invalid_execution = recorder.start_execution(invalid_task)
+    recorder.finish_execution(invalid_execution)
+
+    recorder._connection.execute(
+        """
+        UPDATE execution_events
+        SET event_type = 'INVALID_EVENT'
+        WHERE execution_id = ?
+          AND event_type = 'EXECUTION_FINISHED'
+        """,
+        (invalid_execution,),
+    )
+    recorder._connection.commit()
+
+    with pytest.raises(
+        RecoveryError,
+        match=f"Task {invalid_task}: Unknown event type",
+    ):
+        recovery.recover()
+
+    assert state_manager.get_state(successful_task) == TaskStatus.SUCCEEDED
+    assert state_manager.get_state(invalid_task) == TaskStatus.RUNNING
