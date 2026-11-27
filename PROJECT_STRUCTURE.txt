@@ -88,6 +88,7 @@ local-agent
 |   +--- test_agent_models.py
 |   +--- test_agent_protocols.py
 |   +--- test_agent_stubs.py
+|   +--- test_application_startup.py
 |   +--- test_approval_manager.py
 |   +--- test_approval_model.py
 |   +--- test_context_manager.py
@@ -105,7 +106,6 @@ local-agent
 |   +--- test_plan_models.py
 |   +--- test_read_file.py
 |   +--- test_recovery_manager.py
-|   +--- test_application_startup.py
 |   +--- test_run_command.py
 |   +--- test_run_tests.py
 |   +--- test_state_manager.py
